@@ -1,11 +1,69 @@
-- name: Test Gemini API directly
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+name: Stock Alert Bot
+
+on:
+  schedule:
+    - cron: '0 3 * * 1-5'
+    - cron: '30 5 * * 1-5'
+    - cron: '30 6 * * 1-5'
+    - cron: '15 10 * * 1-5'
+    - cron: '30 4 * * 6'
+  workflow_dispatch:
+    inputs:
+      report_type:
+        description: 'Report to run'
+        required: true
+        default: 'morning'
+        type: choice
+        options:
+          - morning
+          - ipo
+          - midday
+          - evening
+          - weekend
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests pytz
+
+      - name: Determine report type from schedule
+        id: report-type
         run: |
-          curl -s -o response.json -w "%{http_code}" \
-            -X POST \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GOOGLE_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"contents":[{"parts":[{"text":"Say hello in one word"}]}],"generationConfig":{"maxOutputTokens":10}}'
-          echo "--- HTTP STATUS ABOVE ---"
-          cat response.json
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ github.event.inputs.report_type }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          HOUR=$(date -u +%H)
+          DAY=$(date -u +%u)
+          if [ "$DAY" = "6" ]; then
+            echo "type=weekend" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "03" ]; then
+            echo "type=morning" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "05" ]; then
+            echo "type=ipo" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "06" ]; then
+            echo "type=midday" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "10" ]; then
+            echo "type=evening" >> $GITHUB_OUTPUT
+          else
+            echo "type=morning" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run stock alert bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: python bot.py ${{ steps.report-type.outputs.type }}
