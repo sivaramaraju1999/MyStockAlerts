@@ -1,18 +1,16 @@
 import os
+import sys
 import json
 import requests
 from datetime import datetime
 import pytz
-import schedule
-import time
 
 # ─────────────────────────────────────────────
-# YOUR CREDENTIALS — FILL THESE IN
+# CREDENTIALS — loaded from environment variables (set as GitHub Secrets)
 # ─────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = "8797365551:AAGWj67WWsZ2aADvLDH6RCXsFTx3FhYO5eM"
-TELEGRAM_CHAT_ID   = "1708553115"
-GOOGLE_API_KEY     = "AIzaSyDiwyldpaNrUm15nRLsAH0s8tODyRiQl-E"   # aistudio.google.com → API Keys
-# ─────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+GOOGLE_API_KEY     = os.environ.get("GOOGLE_API_KEY", "")
 
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -21,20 +19,24 @@ def get_ist_now():
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    try:
-        r = requests.post(url, json=payload, timeout=30)
-        r.raise_for_status()
-        print(f"[{get_ist_now().strftime('%H:%M:%S')}] Telegram message sent.")
-    except Exception as e:
-        print(f"[ERROR] Telegram send failed: {e}")
+    # Telegram has a 4096 char limit per message — split if needed
+    max_len = 4000
+    chunks = [message[i:i+max_len] for i in range(0, len(message), max_len)]
+    for chunk in chunks:
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": chunk,
+            "parse_mode": "Markdown"
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=30)
+            r.raise_for_status()
+            print(f"[{get_ist_now().strftime('%H:%M:%S')}] Telegram message sent.")
+        except Exception as e:
+            print(f"[ERROR] Telegram send failed: {e}")
 
-def call_claude(prompt):
-    """Call Google Gemini with Google Search grounding (replaces Anthropic web search)."""
+def call_gemini(prompt):
+    """Call Google Gemini with Google Search grounding."""
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
@@ -42,7 +44,7 @@ def call_claude(prompt):
     headers = {"Content-Type": "application/json"}
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "tools": [{"google_search": {}}],          # live Google Search grounding
+        "tools": [{"google_search": {}}],
         "generationConfig": {"maxOutputTokens": 4000}
     }
     try:
@@ -194,7 +196,7 @@ For EACH open IPO / FPO use this block:
      • Total: [x.xx]x
    GMP (Grey Market Premium): ₹[xxx] ([+x]% over issue price)
    Estimated Listing Gain: [x]% above / below issue price
-   ─
+
    📊 FUNDAMENTALS SNAPSHOT:
    • Business: [1 line what the company does]
    • Revenue Growth (3yr): [x]% CAGR
@@ -203,64 +205,28 @@ For EACH open IPO / FPO use this block:
    • P/E vs Peers: [under/fairly/overvalued]
    • Promoter holding post-IPO: [x]%
    • Verdict: ✅ APPLY / ⚠️ RISKY / ❌ AVOID — [1 line reason]
-   ─
+
    🎯 ALLOTMENT PROBABILITY & STRATEGY:
    • Retail allotment chance: [Low/Medium/High] — approx [x]%
-     Reason: [e.g. "42x retail subscription → very low; apply from max accounts"]
-   • Cut-off subscription for 1-lot guarantee at retail: [x]x (typically when retail < 2-3x)
-   ─
-   💡 HOW TO MAXIMISE ALLOTMENT CHANCES:
-   1. Apply from MULTIPLE demat accounts (family members: spouse, parents, adult children)
-      → Each account = 1 independent lottery ticket
-      → Minimum [x] accounts recommended for decent odds
-   2. ALWAYS apply at CUT-OFF PRICE — never a lower bid
-   3. Apply for EXACTLY 1 LOT per account (retail lottery is per-application, not per-lot)
-      Exception: if subscription < 2x, apply max lots (₹2 lakh limit)
-   4. Use UPI mandate — approve IMMEDIATELY, do not delay
-   5. Apply on DAY 1 or DAY 2, avoid last-hour rush
-   6. Use different banks/UPI IDs across accounts to avoid rejection
-   7. Avoid applying from same PAN or same bank across accounts
-   ─
+   • Apply from MULTIPLE demat accounts (family members)
+   • ALWAYS apply at CUT-OFF PRICE
+   • Apply for EXACTLY 1 LOT per account
+   • Approve UPI mandate IMMEDIATELY
+
    🧮 LOT & PROFIT CALCULATION:
    • 1 lot = [x shares] × ₹[issue price] = ₹[total investment per lot]
-   • Apply from [recommended no.] accounts × 1 lot each
-   • Total capital blocked per account: ₹[xxx] (unblocked if not allotted within [x] days)
-   • If allotted (1 lot):
-     - Cost: ₹[xxx]
-     - At GMP-based listing (₹[listing price est.]): Profit = ₹[xxx] ([x]% gain)
-     - At conservative listing (₹[price]): Profit = ₹[xxx]
-     - At worst case (below issue price): Loss = ₹[xxx]
-   • SELL on listing day? [YES — book profit immediately / NO — hold for x target]
-   • Brokerage + STT estimate: ₹[approx] (factor this in)
-   ─
-   🏷️ ALLOTMENT CHECK:
-   • Registrar: [KFintech / Link Intime / Bigshare / MUFG]
-   • Check allotment at: [URL of registrar]
-   • Allotment date: [date]
-   • Listing date: [date]
-   • Exchange: [NSE / BSE / Both]
-
-─────────────────────
+   • If allotted at GMP-based listing: Profit = ₹[xxx] ([x]% gain)
+   • Allotment date: [date] | Listing date: [date]
+   • Registrar: [name] — check at [URL]
 
 📅 UPCOMING IPOs — NEXT 30 DAYS:
 | Company | Open | Close | Est. Size | Type | Watchlist? |
 |---------|------|-------|-----------|------|------------|
 | [Name]  | [dt] | [dt]  | ₹[x Cr]   | [MB/SME] | ✅/⚠️/❌ |
-(list all confirmed and tentative IPOs you find)
-
-─────────────────────
 
 🏆 LISTINGS TODAY:
-(Stocks listing on NSE/BSE today — from recent IPOs)
 • *[COMPANY]* — Issue price ₹[x] | Expected listing ₹[x] ([+/-x]%)
   GMP: ₹[x] | Action: SELL AT OPEN / HOLD / AVOID BUYING TODAY
-  Reason: [1 line]
-
-─────────────────────
-
-📋 RECENTLY CLOSED — ALLOTMENT STATUS:
-• *[COMPANY]* IPO — Allotment on [date] | Check: [registrar URL]
-  Listing: [date] | GMP now: ₹[x] | Suggested action: [Hold/Sell]
 
 ━━━━━━━━━━━━━━━━━━━━
 💡 TODAY'S MARKET MANTRA
@@ -314,7 +280,6 @@ Search for:
 2. "Nifty Sensex closing today"
 3. "Indian stock market highlights {date_str}"
 4. "Tomorrow Indian market outlook"
-5. "F&O expiry stocks tomorrow" if relevant
 
 Send evening summary in this format:
 
@@ -333,7 +298,7 @@ _{time_str}_
 • [Stock]: +[x]%
 • [Stock]: +[x]%
 
-📉 *BIGGEST LOSERS TODAY*  
+📉 *BIGGEST LOSERS TODAY*
 • [Stock]: -[x]% — [reason]
 • [Stock]: -[x]%
 
@@ -376,74 +341,29 @@ For EACH IPO closing today:
    Issue Price: ₹[xxx] | Lot: [x shares] = ₹[investment/lot]
    Current Subscription: Retail [x]x | HNI [x]x | QIB [x]x | Total [x]x
    GMP Right Now: ₹[xxx] ([+x]% profit per lot if listed at GMP)
-   ─
+
    ✅ SHOULD YOU APPLY NOW?
    Verdict: [APPLY / RISKY / SKIP] — [1-2 line reason]
-   ─
+
    ⚡ QUICK ALLOTMENT GUIDE:
-   • Apply from [x] accounts for best odds (lottery per application)
    • Apply at CUT-OFF price — mandatory
    • 1 lot per account (= [x shares] = ₹[amount blocked])
    • UPI mandate approval deadline: 5:00 PM today — DO NOT MISS
-   • Lot size: [x] shares | Max retail investment: ₹2,00,000 = [x] lots
-   ─
+
    💰 PROFIT ESTIMATE IF ALLOTTED:
    • At GMP listing: +₹[xxx] per lot ([x]%)
-   • Conservative listing: +₹[xxx] per lot
    • Sell on listing day? [YES/NO + reason]
-   ─
+
    📅 KEY DATES:
-   • Allotment: [date]
-   • Refund: [date]
-   • Listing: [date] on [NSE/BSE]
+   • Allotment: [date] | Listing: [date] on [NSE/BSE]
    • Registrar: [name] — check at [URL]
 
 _⚠️ Apply only if fundamentals + GMP support it. Not SEBI registered advice._
 """
 
-def run_ipo_closing_reminder():
+def build_weekend_prompt():
     now = get_ist_now()
-    if now.weekday() >= 5:
-        return
-    print(f"[{now.strftime('%H:%M')}] Checking IPO closing reminders...")
-    result = call_claude(build_ipo_closing_prompt())
-    if result.strip() == "NO_IPO_CLOSING_TODAY":
-        print(f"[{now.strftime('%H:%M')}] No IPO closing today — skipping reminder.")
-        return
-    send_telegram(result)
-
-
-    now = get_ist_now()
-    if now.weekday() >= 5:
-        print(f"[{now.strftime('%H:%M')}] Weekend — skipping morning report.")
-        return
-    print(f"[{now.strftime('%H:%M')}] Running morning report...")
-    send_telegram("🔄 _Scanning markets, searching news, building your report... please wait 60 seconds..._")
-    result = call_claude(build_prompt("morning"))
-    send_telegram(result)
-
-def run_midday_report():
-    now = get_ist_now()
-    if now.weekday() >= 5:
-        return
-    print(f"[{now.strftime('%H:%M')}] Running midday report...")
-    result = call_claude(build_prompt("midday"))
-    send_telegram(result)
-
-def run_evening_report():
-    now = get_ist_now()
-    if now.weekday() >= 5:
-        return
-    print(f"[{now.strftime('%H:%M')}] Running evening report...")
-    result = call_claude(build_prompt("evening"))
-    send_telegram(result)
-
-def run_weekend_tip():
-    now = get_ist_now()
-    if now.weekday() not in [5, 6]:
-        return
-    print(f"[{now.strftime('%H:%M')}] Sending weekend tip...")
-    prompt = f"""
+    return f"""
 Today is {now.strftime('%A, %d %B %Y')}. Indian markets are closed on weekends.
 
 Search for:
@@ -456,7 +376,7 @@ Search for:
 7. "IPO allotment result this week India"
 8. "IPO listing next week NSE BSE"
 
-Send a weekend investor tip in this format:
+Send a weekend investor update in this format:
 
 🗓️ *WEEKEND INVESTOR CORNER*
 _{now.strftime('%A, %d %B %Y')}_
@@ -466,7 +386,7 @@ _{now.strftime('%A, %d %B %Y')}_
 
 🔭 *STOCKS TO RESEARCH THIS WEEKEND*
 • [Stock]: [why to research it]
-• [Stock]: [why to research it]  
+• [Stock]: [why to research it]
 • [Stock]: [why to research it]
 
 🌍 *GLOBAL EVENTS NEXT WEEK TO WATCH*
@@ -477,96 +397,96 @@ _{now.strftime('%A, %d %B %Y')}_
 🏷️ WEEKEND IPO / FPO CORNER
 ━━━━━━━━━━━━━━━━━━━━
 
-📂 IPOs / FPOs OPEN RIGHT NOW (apply before close):
+📂 IPOs / FPOs OPEN RIGHT NOW:
 For each open issue:
-
 🔷 *[COMPANY NAME] IPO/FPO*
    Issue Price: ₹[xxx] | Lot: [x shares] | Close: [date]
-   Subscription (latest): Retail [x]x | HNI [x]x | QIB [x]x | Total [x]x
+   Subscription: Retail [x]x | HNI [x]x | QIB [x]x
    GMP: ₹[xxx] ([+x]% over issue price)
-   Estimated Listing: ₹[xxx] ([x]% gain/loss)
-   Fundamentals: [1-2 lines: profitable/loss, growth, debt]
    Verdict: ✅ APPLY / ⚠️ RISKY / ❌ AVOID
-   ─
-   🎯 ALLOTMENT PROBABILITY:
-   • Retail chance: [Low/Medium/High] (~[x]%)
-   • Reason: [subscription level explanation]
-   ─
-   💡 WEEKEND ACTION — MAXIMISE ALLOTMENT:
-   1. Apply from [x] accounts (family members — each is a separate lottery ticket)
-   2. Apply at CUT-OFF PRICE always
-   3. Apply 1 lot per account (retail lottery is per-application not per-lot)
-      Unless subscription < 2x — then apply max lots up to ₹2 lakh
-   4. Approve UPI mandate IMMEDIATELY after applying
-   5. Different UPI IDs / banks per account preferred
-   ─
-   🧮 PROFIT CALCULATOR:
-   • Capital per account: ₹[lot investment]
-   • If allotted — Listing gain at GMP: ₹[profit] ([x]%)
-   • Conservative estimate: ₹[profit] ([x]%)
-   • Risk (below issue): ₹[loss] if market conditions worsen
-   • SELL on listing? [Yes/No + reason]
-   • Registrar: [name] | Allotment date: [date] | Listing date: [date]
-   • Check allotment: [URL]
-
-─────────────────────
+   Allotment: [date] | Listing: [date]
+   Check: [registrar URL]
 
 📅 IPO CALENDAR — NEXT 4 WEEKS:
 | Company | Open | Close | Size | Type | Verdict |
 |---------|------|-------|------|------|---------|
 | [Name]  | [dt] | [dt]  | ₹[x Cr] | [MB/SME] | ✅/⚠️/❌ |
 
-─────────────────────
-
-🏆 LISTINGS NEXT WEEK (plan your exit):
+🏆 LISTINGS NEXT WEEK:
 • *[Company]* — Listing [date] | Issue ₹[x] | GMP ₹[x] → Est. ₹[x] ([+x]%)
   Action: SELL AT OPEN / HOLD / PARTIAL SELL
 
-📋 ALLOTMENT RESULTS THIS WEEK:
-• *[Company]* IPO — Allotment done | Listing [date] | GMP ₹[x]
-  If allotted: [Sell/Hold recommendation]
-  Check: [registrar URL]
-
-━━━━━━━━━━━━━━━━━━━━
 💡 *WEEKEND LEARNING*
-[One fundamental analysis concept from CA Rachana Ranade framework explained simply]
+[One fundamental analysis concept explained simply]
 
 _Markets reopen Monday 9:15 AM IST_ 🔔
 """
-    result = call_claude(prompt)
+
+# ─────────────────────────────────────────────
+# REPORT RUNNERS
+# ─────────────────────────────────────────────
+def run_morning_report():
+    now = get_ist_now()
+    if now.weekday() >= 5:
+        print(f"[{now.strftime('%H:%M')}] Weekend — skipping morning report.")
+        return
+    print(f"[{now.strftime('%H:%M')}] Running morning report...")
+    send_telegram("🔄 _Scanning markets, searching news, building your report... please wait 60 seconds..._")
+    result = call_gemini(build_prompt("morning"))
+    send_telegram(result)
+
+def run_ipo_closing_reminder():
+    now = get_ist_now()
+    if now.weekday() >= 5:
+        return
+    print(f"[{now.strftime('%H:%M')}] Checking IPO closing reminders...")
+    result = call_gemini(build_ipo_closing_prompt())
+    if result.strip() == "NO_IPO_CLOSING_TODAY":
+        print(f"[{now.strftime('%H:%M')}] No IPO closing today — skipping.")
+        return
+    send_telegram(result)
+
+def run_midday_report():
+    now = get_ist_now()
+    if now.weekday() >= 5:
+        return
+    print(f"[{now.strftime('%H:%M')}] Running midday report...")
+    result = call_gemini(build_prompt("midday"))
+    send_telegram(result)
+
+def run_evening_report():
+    now = get_ist_now()
+    if now.weekday() >= 5:
+        return
+    print(f"[{now.strftime('%H:%M')}] Running evening report...")
+    result = call_gemini(build_prompt("evening"))
+    send_telegram(result)
+
+def run_weekend_tip():
+    now = get_ist_now()
+    if now.weekday() not in [5, 6]:
+        return
+    print(f"[{now.strftime('%H:%M')}] Sending weekend tip...")
+    result = call_gemini(build_weekend_prompt())
     send_telegram(result)
 
 # ─────────────────────────────────────────────
-# SCHEDULE — IST TIMES
+# ENTRY POINT — called by GitHub Actions with argument
+# e.g. python bot.py morning
 # ─────────────────────────────────────────────
-schedule.every().day.at("08:30").do(run_morning_report)   # Before market open
-schedule.every().day.at("11:00").do(run_ipo_closing_reminder)  # IPO last-day alert
-schedule.every().day.at("12:00").do(run_midday_report)    # Midday check
-schedule.every().day.at("15:45").do(run_evening_report)   # After market close
-schedule.every().saturday.at("10:00").do(run_weekend_tip) # Weekend tip
-# ─────────────────────────────────────────────
-
 if __name__ == "__main__":
-    now = get_ist_now()
-    print(f"✅ Stock Alert Bot started at {now.strftime('%H:%M:%S IST, %d %B %Y')}")
-    print(f"📅 Scheduled: 8:30 AM (morning), 11:00 AM (IPO closing alert), 12:00 PM (midday), 3:45 PM (evening), Saturday 10 AM (weekend)")
-    print(f"📱 Telegram Chat ID: {TELEGRAM_CHAT_ID}")
-    print("─" * 50)
-
-    send_telegram(
-        f"🤖 *Stock Alert Bot is LIVE!*\n\n"
-        f"✅ Connected successfully\n"
-        f"📅 Started: {now.strftime('%d %B %Y, %H:%M IST')}\n\n"
-        f"*Daily Schedule (weekdays):*\n"
-        f"• 8:30 AM — Morning picks (intraday + long term + IPO/FPO intel)\n"
-        f"• 11:00 AM — ⏰ IPO closing today? Last-chance alert\n"
-        f"• 12:00 PM — Midday market update\n"
-        f"• 3:45 PM — Evening summary + tomorrow outlook\n"
-        f"• Saturday 10 AM — Weekend research + IPO calendar\n\n"
-        f"_Powered by Google Gemini 2.0 Flash + live Google Search grounding_ 🔍\n"
-        f"_IPO/FPO intelligence: allotment odds, GMP, profit calc included_ 🏷️"
-    )
-
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+    report_type = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    dispatch = {
+        "morning":  run_morning_report,
+        "ipo":      run_ipo_closing_reminder,
+        "midday":   run_midday_report,
+        "evening":  run_evening_report,
+        "weekend":  run_weekend_tip,
+    }
+    fn = dispatch.get(report_type)
+    if fn:
+        fn()
+    else:
+        print(f"Unknown report type: {report_type}")
+        print(f"Valid options: {list(dispatch.keys())}")
+        sys.exit(1)
