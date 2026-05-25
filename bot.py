@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import requests
 from datetime import datetime
@@ -14,57 +15,173 @@ GOOGLE_API_KEY     = os.environ.get("GOOGLE_API_KEY", "")
 
 IST = pytz.timezone("Asia/Kolkata")
 
+# ─────────────────────────────────────────────
+# RETRY CONFIGURATION
+# ─────────────────────────────────────────────
+GEMINI_TIMEOUT      = 180          # seconds per attempt
+GEMINI_MAX_RETRIES  = 3
+GEMINI_RETRY_DELAY  = 15           # seconds between retries
+TELEGRAM_TIMEOUT    = 30
+TELEGRAM_MAX_RETRIES = 3
+TELEGRAM_RETRY_DELAY = 5
+
+
 def get_ist_now():
     return datetime.now(IST)
 
-def send_telegram(message):
+
+def dbg(msg: str):
+    """Timestamped debug print to stdout (visible in GitHub Actions logs)."""
+    ts = get_ist_now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
+# ─────────────────────────────────────────────
+# TELEGRAM
+# ─────────────────────────────────────────────
+def send_telegram(message: str, is_error: bool = False):
+    """
+    Send a Telegram message, splitting at 4000-char chunks.
+    Retries up to TELEGRAM_MAX_RETRIES times on failure.
+    If is_error=True the prefix is already set by caller.
+    """
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    # Telegram has a 4096 char limit per message — split if needed
     max_len = 4000
     chunks = [message[i:i+max_len] for i in range(0, len(message), max_len)]
-    for chunk in chunks:
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": chunk,
-            "parse_mode": "Markdown"
-        }
-        try:
-            r = requests.post(url, json=payload, timeout=30)
-            r.raise_for_status()
-            print(f"[{get_ist_now().strftime('%H:%M:%S')}] Telegram message sent.")
-        except Exception as e:
-            print(f"[ERROR] Telegram send failed: {e}")
 
-def call_gemini(prompt):
-    """Call Google Gemini with Google Search grounding."""
+    for idx, chunk in enumerate(chunks):
+        dbg(f"Sending Telegram chunk {idx+1}/{len(chunks)} ({len(chunk)} chars)...")
+        payload = {
+            "chat_id":    TELEGRAM_CHAT_ID,
+            "text":       chunk,
+            "parse_mode": "Markdown",
+        }
+        for attempt in range(1, TELEGRAM_MAX_RETRIES + 1):
+            try:
+                r = requests.post(url, json=payload, timeout=TELEGRAM_TIMEOUT)
+                r.raise_for_status()
+                dbg(f"Telegram chunk {idx+1} sent successfully (attempt {attempt}).")
+                break
+            except Exception as e:
+                dbg(f"[WARN] Telegram send attempt {attempt}/{TELEGRAM_MAX_RETRIES} failed: {e}")
+                if attempt < TELEGRAM_MAX_RETRIES:
+                    dbg(f"Retrying Telegram in {TELEGRAM_RETRY_DELAY}s...")
+                    time.sleep(TELEGRAM_RETRY_DELAY)
+                else:
+                    # Last resort — try plain text (strip markdown that may have caused the error)
+                    dbg("[ERROR] All Telegram retries exhausted for this chunk. Trying plain text...")
+                    try:
+                        plain_payload = {
+                            "chat_id":    TELEGRAM_CHAT_ID,
+                            "text":       chunk,
+                            "parse_mode": "",
+                        }
+                        r2 = requests.post(url, json=plain_payload, timeout=TELEGRAM_TIMEOUT)
+                        r2.raise_for_status()
+                        dbg("Sent chunk as plain text (fallback).")
+                    except Exception as e2:
+                        dbg(f"[CRITICAL] Plain-text fallback also failed: {e2}")
+
+
+def send_error_to_telegram(context: str, error: str):
+    """Send a structured error alert to Telegram so failures are visible."""
+    now = get_ist_now().strftime("%d %b %Y %I:%M %p IST")
+    msg = (
+        f"🚨 *BOT ERROR — {now}*\n\n"
+        f"*Context:* `{context}`\n"
+        f"*Error:* `{error[:800]}`\n\n"
+        f"_Check GitHub Actions logs for full traceback._"
+    )
+    dbg(f"Sending error notification to Telegram: {error[:120]}")
+    send_telegram(msg, is_error=True)
+
+
+# ─────────────────────────────────────────────
+# GEMINI
+# ─────────────────────────────────────────────
+def call_gemini(prompt: str, context: str = "gemini_call") -> str:
+    """
+    Call Google Gemini with Google Search grounding.
+    Retries up to GEMINI_MAX_RETRIES times with exponential-ish back-off.
+    On complete failure, reports to Telegram and returns an error string.
+    """
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
     )
     headers = {"Content-Type": "application/json"}
     body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "tools": [{"google_search": {}}],
-        "generationConfig": {"maxOutputTokens": 4000}
+        "contents":         [{"parts": [{"text": prompt}]}],
+        "tools":            [{"google_search": {}}],
+        "generationConfig": {"maxOutputTokens": 4096},
     }
-    try:
-        r = requests.post(url, headers=headers, json=body, timeout=120)
-        r.raise_for_status()
-        data = r.json()
-        text_parts = []
-        for candidate in data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                if "text" in part:
-                    text_parts.append(part["text"])
-        return "\n".join(text_parts) if text_parts else "[ERROR] Empty response from Gemini."
-    except Exception as e:
-        return f"[ERROR] Gemini API failed: {e}"
 
-def build_prompt(report_type):
+    last_error = ""
+    for attempt in range(1, GEMINI_MAX_RETRIES + 1):
+        dbg(f"Gemini API attempt {attempt}/{GEMINI_MAX_RETRIES} (timeout={GEMINI_TIMEOUT}s)...")
+        try:
+            r = requests.post(url, headers=headers, json=body, timeout=GEMINI_TIMEOUT)
+            dbg(f"Gemini HTTP status: {r.status_code}")
+            r.raise_for_status()
+            data = r.json()
+
+            # ── Debug: show finish reason and token counts ──
+            for i, candidate in enumerate(data.get("candidates", [])):
+                finish = candidate.get("finishReason", "UNKNOWN")
+                dbg(f"Candidate {i}: finishReason={finish}")
+
+            usage = data.get("usageMetadata", {})
+            dbg(
+                f"Tokens — prompt: {usage.get('promptTokenCount', '?')} | "
+                f"candidates: {usage.get('candidatesTokenCount', '?')} | "
+                f"total: {usage.get('totalTokenCount', '?')}"
+            )
+
+            # ── Extract text parts ──
+            text_parts = []
+            for candidate in data.get("candidates", []):
+                for part in candidate.get("content", {}).get("parts", []):
+                    if "text" in part:
+                        text_parts.append(part["text"])
+
+            result = "\n".join(text_parts).strip()
+            if not result:
+                raise ValueError("Empty text response from Gemini — possible content filter or quota issue.")
+
+            dbg(f"Gemini returned {len(result)} characters.")
+            return result
+
+        except requests.exceptions.Timeout:
+            last_error = f"Request timed out after {GEMINI_TIMEOUT}s"
+            dbg(f"[WARN] {last_error}")
+        except requests.exceptions.HTTPError as e:
+            last_error = f"HTTP {r.status_code}: {r.text[:300]}"
+            dbg(f"[WARN] Gemini HTTP error: {last_error}")
+        except Exception as e:
+            last_error = str(e)
+            dbg(f"[WARN] Gemini error: {last_error}")
+
+        if attempt < GEMINI_MAX_RETRIES:
+            wait = GEMINI_RETRY_DELAY * attempt   # 15s, 30s, 45s ...
+            dbg(f"Retrying Gemini in {wait}s...")
+            time.sleep(wait)
+
+    # ── All retries exhausted ──
+    err_msg = f"Gemini failed after {GEMINI_MAX_RETRIES} attempts. Last error: {last_error}"
+    dbg(f"[ERROR] {err_msg}")
+    send_error_to_telegram(context, err_msg)
+    return f"[ERROR] {err_msg}"
+
+
+# ─────────────────────────────────────────────
+# PROMPTS
+# ─────────────────────────────────────────────
+def build_prompt(report_type: str) -> str:
     now       = get_ist_now()
     date_str  = now.strftime("%A, %d %B %Y")
     time_str  = now.strftime("%I:%M %p IST")
-    open_mins = max(0, int((now.replace(hour=9, minute=15, second=0, microsecond=0) - now).total_seconds() // 60))
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    open_mins = max(0, int((market_open - now).total_seconds() // 60))
 
     if report_type == "morning":
         return f"""
@@ -314,7 +431,10 @@ _{time_str}_
 _⚠️ For education only. Not SEBI registered advice._
 """
 
-def build_ipo_closing_prompt():
+    return ""
+
+
+def build_ipo_closing_prompt() -> str:
     now      = get_ist_now()
     date_str = now.strftime("%A, %d %B %Y")
     time_str = now.strftime("%I:%M %p IST")
@@ -361,7 +481,8 @@ For EACH IPO closing today:
 _⚠️ Apply only if fundamentals + GMP support it. Not SEBI registered advice._
 """
 
-def build_weekend_prompt():
+
+def build_weekend_prompt() -> str:
     now = get_ist_now()
     return f"""
 Today is {now.strftime('%A, %d %B %Y')}. Indian markets are closed on weekends.
@@ -422,71 +543,121 @@ For each open issue:
 _Markets reopen Monday 9:15 AM IST_ 🔔
 """
 
+
 # ─────────────────────────────────────────────
 # REPORT RUNNERS
 # ─────────────────────────────────────────────
 def run_morning_report():
     now = get_ist_now()
     if now.weekday() >= 5:
-        print(f"[{now.strftime('%H:%M')}] Weekend — skipping morning report.")
+        dbg("Weekend — skipping morning report.")
         return
-    print(f"[{now.strftime('%H:%M')}] Running morning report...")
-    send_telegram("🔄 _Scanning markets, searching news, building your report... please wait 60 seconds..._")
-    result = call_gemini(build_prompt("morning"))
+    dbg("=== STARTING MORNING REPORT ===")
+    send_telegram("🔄 _Scanning markets, searching news, building your report... please wait ~60 seconds..._")
+    result = call_gemini(build_prompt("morning"), context="morning_report")
+    if result.startswith("[ERROR]"):
+        dbg("Morning report failed — error already sent to Telegram.")
+        return
+    dbg(f"Morning report ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
+    dbg("=== MORNING REPORT DONE ===")
+
 
 def run_ipo_closing_reminder():
     now = get_ist_now()
     if now.weekday() >= 5:
+        dbg("Weekend — skipping IPO closing reminder.")
         return
-    print(f"[{now.strftime('%H:%M')}] Checking IPO closing reminders...")
-    result = call_gemini(build_ipo_closing_prompt())
+    dbg("=== CHECKING IPO CLOSING REMINDER ===")
+    result = call_gemini(build_ipo_closing_prompt(), context="ipo_closing")
+    if result.startswith("[ERROR]"):
+        dbg("IPO closing check failed — error already sent to Telegram.")
+        return
     if result.strip() == "NO_IPO_CLOSING_TODAY":
-        print(f"[{now.strftime('%H:%M')}] No IPO closing today — skipping.")
+        dbg("No IPO closing today — skipping Telegram message.")
         return
+    dbg(f"IPO reminder ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
+    dbg("=== IPO CLOSING REMINDER DONE ===")
+
 
 def run_midday_report():
     now = get_ist_now()
     if now.weekday() >= 5:
+        dbg("Weekend — skipping midday report.")
         return
-    print(f"[{now.strftime('%H:%M')}] Running midday report...")
-    result = call_gemini(build_prompt("midday"))
+    dbg("=== STARTING MIDDAY REPORT ===")
+    result = call_gemini(build_prompt("midday"), context="midday_report")
+    if result.startswith("[ERROR]"):
+        dbg("Midday report failed — error already sent to Telegram.")
+        return
+    dbg(f"Midday report ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
+    dbg("=== MIDDAY REPORT DONE ===")
+
 
 def run_evening_report():
     now = get_ist_now()
     if now.weekday() >= 5:
+        dbg("Weekend — skipping evening report.")
         return
-    print(f"[{now.strftime('%H:%M')}] Running evening report...")
-    result = call_gemini(build_prompt("evening"))
+    dbg("=== STARTING EVENING REPORT ===")
+    result = call_gemini(build_prompt("evening"), context="evening_report")
+    if result.startswith("[ERROR]"):
+        dbg("Evening report failed — error already sent to Telegram.")
+        return
+    dbg(f"Evening report ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
+    dbg("=== EVENING REPORT DONE ===")
+
 
 def run_weekend_tip():
     now = get_ist_now()
     if now.weekday() not in [5, 6]:
+        dbg("Weekday — skipping weekend tip.")
         return
-    print(f"[{now.strftime('%H:%M')}] Sending weekend tip...")
-    result = call_gemini(build_weekend_prompt())
+    dbg("=== STARTING WEEKEND TIP ===")
+    result = call_gemini(build_weekend_prompt(), context="weekend_tip")
+    if result.startswith("[ERROR]"):
+        dbg("Weekend tip failed — error already sent to Telegram.")
+        return
+    dbg(f"Weekend tip ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
+    dbg("=== WEEKEND TIP DONE ===")
+
 
 # ─────────────────────────────────────────────
-# ENTRY POINT — called by GitHub Actions with argument
-# e.g. python bot.py morning
+# ENTRY POINT — called by GitHub Actions
+# e.g.  python bot.py morning
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     report_type = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    dbg(f"Bot started — report_type='{report_type}'")
+
+    # Basic credential check
+    missing = [k for k, v in {
+        "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
+        "TELEGRAM_CHAT_ID":   TELEGRAM_CHAT_ID,
+        "GOOGLE_API_KEY":     GOOGLE_API_KEY,
+    }.items() if not v]
+    if missing:
+        print(f"[CRITICAL] Missing environment variables: {', '.join(missing)}")
+        sys.exit(1)
+
     dispatch = {
-        "morning":  run_morning_report,
-        "ipo":      run_ipo_closing_reminder,
-        "midday":   run_midday_report,
-        "evening":  run_evening_report,
-        "weekend":  run_weekend_tip,
+        "morning": run_morning_report,
+        "ipo":     run_ipo_closing_reminder,
+        "midday":  run_midday_report,
+        "evening": run_evening_report,
+        "weekend": run_weekend_tip,
     }
     fn = dispatch.get(report_type)
     if fn:
         fn()
     else:
-        print(f"Unknown report type: {report_type}")
-        print(f"Valid options: {list(dispatch.keys())}")
+        msg = f"Unknown report type: '{report_type}'. Valid: {list(dispatch.keys())}"
+        dbg(f"[ERROR] {msg}")
+        print(msg)
         sys.exit(1)
+
+    dbg("Bot finished successfully.")
