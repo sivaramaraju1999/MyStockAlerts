@@ -116,7 +116,7 @@ def call_groq(prompt: str, context: str = "groq_call") -> str:
         "messages": [
             {
                 "role": "system", 
-                "content": "You are a real-time financial analyst bot fetching and structuring data accurately."
+                "content": "You are an elite Indian financial market data intelligence AI assistant with comprehensive access to live global market summaries, NSE/BSE analytics, and IPO metrics."
             },
             {
                 "role": "user", 
@@ -195,15 +195,14 @@ You are an elite Indian stock market analyst. Today is {date_str}, {time_str}.
 Indian market opens at 9:15 AM IST ({open_mins} minutes from now).
 
 YOUR MISSION:
-Scan the entire Indian market and pick the best stocks for today based on the latest available market data up to this morning.
+Scan the entire Indian market and pick the best stocks for today based on latest global signals and domestic parameters.
 
-MANDATORY DATA TO RECALL AND EVALUATE BEFORE ANSWERING:
-1. Current status of: "GIFT Nifty today {date_str}" — pre-market direction
-2. Global Closings: "US stock market closing {date_str}" — Dow, S&P, NASDAQ
-3. Commodities & FX: "crude oil price today" & "USD INR today"
-4. Core Data: "India stock market news today {date_str}", "NSE BSE top gainers losers", "FII DII data today India"
-5. Action Stocks: Results announcements, intraday momentum indicators for {date_str}.
-6. IPO/FPO Status: Open IPOs, allotments, GMP (Grey Market Premiums) for today.
+MANDATORY DATA EVALUATION BEFORE ANSWERING:
+1. Pre-market directions: "GIFT Nifty today {date_str}"
+2. Global Closures: "US stock market closing {date_str}" — Dow, S&P, NASDAQ
+3. Core Variables: Crude oil price trends, USD/INR conversion impact on India.
+4. Active Domestic Triggers: "India stock market news today {date_str}", "NSE BSE top gainers losers", "FII DII net data".
+5. IPO Ecosystem metrics: Current Open issues, allotments happening today, and active Grey Market Premiums (GMP).
 
 INTRADAY PICKS (pick TOP 5):
 Select stocks that have a clear catalyst TODAY:
@@ -351,10 +350,10 @@ _⚠️ For education only. Not SEBI registered advice. Invest at your own risk.
 You are an elite Indian stock market analyst. Time is {time_str}, {date_str}.
 Indian market is LIVE right now (9:15 AM - 3:30 PM IST).
 
-Evaluate the following midday market metrics:
-1. Top gainers and losers right now on the NSE.
-2. Nifty 50 real-time performance curves for {date_str}.
-3. Active afternoon breaking news impacting major stocks.
+Evaluate the following dynamic midday metrics:
+1. Top real-time gainers and losers right now on the NSE.
+2. Nifty 50 absolute midday variance and baseline performance trends for {date_str}.
+3. Breaking afternoon news updates that are currently pushing momentum stocks.
 
 Send a SHORT midday update in this format:
 
@@ -384,10 +383,10 @@ _Market closes at 3:30 PM IST_
 You are an elite Indian stock market analyst. Time is {time_str}, {date_str}.
 Indian market has CLOSED for today.
 
-Analyze the market close metrics:
-1. Final closing tags for Nifty 50, Sensex and structural market breadth.
-2. Net institutional provisional figures (FII / DII net activity values).
-3. Tomorrow's structural market outlook based on the closing cues.
+Synthesize market close profiles:
+1. Closing figures for Nifty 50, Sensex, and structural market breadth data.
+2. Net institutional turnover updates (FII / DII provisional transaction metrics).
+3. Strategic projections for tomorrow's opening based on current closing momentum.
 
 Send evening summary in this format:
 
@@ -432,7 +431,7 @@ def build_ipo_closing_prompt() -> str:
     return f"""
 You are an expert Indian IPO analyst. Today is {date_str}, {time_str}.
 
-Verify active IPO deadlines closing today in India ({date_str}), gathering current subscription multiples and late-breaking GMP adjustments.
+Verify active Indian Mainboard and SME IPO issues reaching their closing window today ({date_str}). Consolidate final oversubscription multiples, live GMP metrics, and direct execution strategies.
 
 ONLY send this message if at least 1 IPO/FPO closes TODAY.
 If no IPO closes today, reply with exactly: NO_IPO_CLOSING_TODAY
@@ -474,10 +473,9 @@ def build_weekend_prompt() -> str:
     return f"""
 Today is {now.strftime('%A, %d %B %Y')}. Indian markets are closed on weekends.
 
-Provide a macro weekly digest containing:
-1. Indian stock market comprehensive weekly summary for {now.strftime('%B %Y')}.
-2. Global macro events lined up for next week.
-3. Forthcoming IPO/FPO parameters and pipeline analytics.
+Formulate an educational macro weekly performance recap including:
+1. Strategic summary of the past trading week's movements across major indices.
+2. Next week's key earnings calendars, IPO schedules, and global economic catalysts.
 
 Send a weekend investor update in this format:
 
@@ -535,7 +533,7 @@ def run_morning_report():
         dbg("Weekend — skipping morning report.")
         return
     dbg("=== STARTING MORNING REPORT ===")
-    send_telegram("🔄 _Scanning markets, parsing metrics, building your Groq analysis report... please wait..._")
+    send_telegram("🔄 _Scanning markets, aggregating vectors, preparing your Groq Llama 3.3 financial advisory report..._")
     result = call_groq(build_prompt("morning"), context="morning_report")
     if result.startswith("[ERROR]"):
         dbg("Morning report failed — error already sent to Telegram.")
