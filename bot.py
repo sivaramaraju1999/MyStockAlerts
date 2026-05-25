@@ -11,17 +11,17 @@ import pytz
 # ─────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
-GOOGLE_API_KEY     = os.environ.get("GOOGLE_API_KEY", "")
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
 
 IST = pytz.timezone("Asia/Kolkata")
 
 # ─────────────────────────────────────────────
 # RETRY CONFIGURATION
 # ─────────────────────────────────────────────
-GEMINI_TIMEOUT      = 180          # seconds per attempt
-GEMINI_MAX_RETRIES  = 3
-GEMINI_RETRY_DELAY  = 15           # seconds between retries
-TELEGRAM_TIMEOUT    = 30
+GROQ_TIMEOUT         = 180          # seconds per attempt
+GROQ_MAX_RETRIES     = 3
+GROQ_RETRY_DELAY     = 15           # seconds between retries
+TELEGRAM_TIMEOUT     = 30
 TELEGRAM_MAX_RETRIES = 3
 TELEGRAM_RETRY_DELAY = 5
 
@@ -97,77 +97,83 @@ def send_error_to_telegram(context: str, error: str):
 
 
 # ─────────────────────────────────────────────
-# GEMINI
+# GROQ
 # ─────────────────────────────────────────────
-def call_gemini(prompt: str, context: str = "gemini_call") -> str:
+def call_groq(prompt: str, context: str = "groq_call") -> str:
     """
-    Call Google Gemini with Google Search grounding.
-    Retries up to GEMINI_MAX_RETRIES times with exponential-ish back-off.
+    Call Groq API with structured prompting using Llama 3.3 70B.
+    Retries up to GROQ_MAX_RETRIES times with exponential back-off.
     On complete failure, reports to Telegram and returns an error string.
     """
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}"
-    )
-    headers = {"Content-Type": "application/json"}
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     body = {
-        "contents":         [{"parts": [{"text": prompt}]}],
-        "tools":            [{"google_search": {}}],
-        "generationConfig": {"maxOutputTokens": 4096},
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system", 
+                "content": "You are a real-time financial analyst bot fetching and structuring data accurately."
+            },
+            {
+                "role": "user", 
+                "content": prompt
+            }
+        ],
+        "temperature": 0.2,
+        "max_tokens": 4096,
     }
 
     last_error = ""
-    for attempt in range(1, GEMINI_MAX_RETRIES + 1):
-        dbg(f"Gemini API attempt {attempt}/{GEMINI_MAX_RETRIES} (timeout={GEMINI_TIMEOUT}s)...")
+    for attempt in range(1, GROQ_MAX_RETRIES + 1):
+        dbg(f"Groq API attempt {attempt}/{GROQ_MAX_RETRIES} (timeout={GROQ_TIMEOUT}s)...")
         try:
-            r = requests.post(url, headers=headers, json=body, timeout=GEMINI_TIMEOUT)
-            dbg(f"Gemini HTTP status: {r.status_code}")
+            r = requests.post(url, headers=headers, json=body, timeout=GROQ_TIMEOUT)
+            dbg(f"Groq HTTP status: {r.status_code}")
             r.raise_for_status()
             data = r.json()
 
-            # ── Debug: show finish reason and token counts ──
-            for i, candidate in enumerate(data.get("candidates", [])):
-                finish = candidate.get("finishReason", "UNKNOWN")
-                dbg(f"Candidate {i}: finishReason={finish}")
-
-            usage = data.get("usageMetadata", {})
+            # ── Extract usage token counts ──
+            usage = data.get("usage", {})
             dbg(
-                f"Tokens — prompt: {usage.get('promptTokenCount', '?')} | "
-                f"candidates: {usage.get('candidatesTokenCount', '?')} | "
-                f"total: {usage.get('totalTokenCount', '?')}"
+                f"Tokens — prompt: {usage.get('prompt_tokens', '?')} | "
+                f"completion: {usage.get('completion_tokens', '?')} | "
+                f"total: {usage.get('total_tokens', '?')}"
             )
 
-            # ── Extract text parts ──
-            text_parts = []
-            for candidate in data.get("candidates", []):
-                for part in candidate.get("content", {}).get("parts", []):
-                    if "text" in part:
-                        text_parts.append(part["text"])
-
-            result = "\n".join(text_parts).strip()
+            # ── Extract text response from Groq/OpenAI format ──
+            choices = data.get("choices", [])
+            if not choices:
+                raise ValueError("Empty response choices from Groq.")
+                
+            result = choices[0].get("message", {}).get("content", "").strip()
+            
             if not result:
-                raise ValueError("Empty text response from Gemini — possible content filter or quota issue.")
+                raise ValueError("Empty text response content from Groq.")
 
-            dbg(f"Gemini returned {len(result)} characters.")
+            dbg(f"Groq returned {len(result)} characters.")
             return result
 
         except requests.exceptions.Timeout:
-            last_error = f"Request timed out after {GEMINI_TIMEOUT}s"
+            last_error = f"Request timed out after {GROQ_TIMEOUT}s"
             dbg(f"[WARN] {last_error}")
         except requests.exceptions.HTTPError as e:
             last_error = f"HTTP {r.status_code}: {r.text[:300]}"
-            dbg(f"[WARN] Gemini HTTP error: {last_error}")
+            dbg(f"[WARN] Groq HTTP error: {last_error}")
         except Exception as e:
             last_error = str(e)
-            dbg(f"[WARN] Gemini error: {last_error}")
+            dbg(f"[WARN] Groq error: {last_error}")
 
-        if attempt < GEMINI_MAX_RETRIES:
-            wait = GEMINI_RETRY_DELAY * attempt   # 15s, 30s, 45s ...
-            dbg(f"Retrying Gemini in {wait}s...")
+        if attempt < GROQ_MAX_RETRIES:
+            wait = GROQ_RETRY_DELAY * attempt   # 15s, 30s, 45s ...
+            dbg(f"Retrying Groq in {wait}s...")
             time.sleep(wait)
 
     # ── All retries exhausted ──
-    err_msg = f"Gemini failed after {GEMINI_MAX_RETRIES} attempts. Last error: {last_error}"
+    err_msg = f"Groq failed after {GROQ_MAX_RETRIES} attempts. Last error: {last_error}"
     dbg(f"[ERROR] {err_msg}")
     send_error_to_telegram(context, err_msg)
     return f"[ERROR] {err_msg}"
@@ -189,28 +195,15 @@ You are an elite Indian stock market analyst. Today is {date_str}, {time_str}.
 Indian market opens at 9:15 AM IST ({open_mins} minutes from now).
 
 YOUR MISSION:
-Scan the entire Indian market and pick the best stocks for today.
-Do NOT wait to be told which stocks — find them yourself using web search.
+Scan the entire Indian market and pick the best stocks for today based on the latest available market data up to this morning.
 
-MANDATORY RESEARCH BEFORE ANSWERING:
-1. Search: "GIFT Nifty today {date_str}" — get pre-market direction
-2. Search: "US stock market closing {date_str}" — Dow, S&P, NASDAQ
-3. Search: "crude oil price today" — impact on Indian market
-4. Search: "USD INR today" — rupee strength
-5. Search: "India stock market news today {date_str}" — top stories
-6. Search: "NSE BSE top gainers losers today" — momentum stocks
-7. Search: "FII DII data today India" — institutional activity
-8. Search: "Indian stocks results announcement today" — earnings catalysts
-9. Search: "top intraday stocks NSE today {date_str}"
-10. Search: "best fundamentally strong Indian stocks 2025 long term"
-11. Search: "IPO open today India {date_str}" — currently open IPOs
-12. Search: "IPO allotment today India {date_str}" — allotment results
-13. Search: "IPO GMP today India grey market premium {date_str}"
-14. Search: "FPO open today India {date_str}" — currently open FPOs
-15. Search: "upcoming IPO India next 30 days {date_str}"
-16. Search: "IPO subscription status today India {date_str}" — how many times oversubscribed
-17. Search: "IPO listing today NSE BSE {date_str}" — listings happening today
-18. Search: "IPO allotment probability retail HNI QIB {date_str}"
+MANDATORY DATA TO RECALL AND EVALUATE BEFORE ANSWERING:
+1. Current status of: "GIFT Nifty today {date_str}" — pre-market direction
+2. Global Closings: "US stock market closing {date_str}" — Dow, S&P, NASDAQ
+3. Commodities & FX: "crude oil price today" & "USD INR today"
+4. Core Data: "India stock market news today {date_str}", "NSE BSE top gainers losers", "FII DII data today India"
+5. Action Stocks: Results announcements, intraday momentum indicators for {date_str}.
+6. IPO/FPO Status: Open IPOs, allotments, GMP (Grey Market Premiums) for today.
 
 INTRADAY PICKS (pick TOP 5):
 Select stocks that have a clear catalyst TODAY:
@@ -358,11 +351,10 @@ _⚠️ For education only. Not SEBI registered advice. Invest at your own risk.
 You are an elite Indian stock market analyst. Time is {time_str}, {date_str}.
 Indian market is LIVE right now (9:15 AM - 3:30 PM IST).
 
-Do a midday market check. Search for:
-1. "NSE top gainers today" and "NSE top losers today"
-2. "Nifty 50 today performance {date_str}"
-3. "Indian stock market news afternoon {date_str}"
-4. Any breaking news affecting stocks right now
+Evaluate the following midday market metrics:
+1. Top gainers and losers right now on the NSE.
+2. Nifty 50 real-time performance curves for {date_str}.
+3. Active afternoon breaking news impacting major stocks.
 
 Send a SHORT midday update in this format:
 
@@ -392,11 +384,10 @@ _Market closes at 3:30 PM IST_
 You are an elite Indian stock market analyst. Time is {time_str}, {date_str}.
 Indian market has CLOSED for today.
 
-Search for:
-1. "NSE BSE market closing today {date_str}"
-2. "Nifty Sensex closing today"
-3. "Indian stock market highlights {date_str}"
-4. "Tomorrow Indian market outlook"
+Analyze the market close metrics:
+1. Final closing tags for Nifty 50, Sensex and structural market breadth.
+2. Net institutional provisional figures (FII / DII net activity values).
+3. Tomorrow's structural market outlook based on the closing cues.
 
 Send evening summary in this format:
 
@@ -441,11 +432,7 @@ def build_ipo_closing_prompt() -> str:
     return f"""
 You are an expert Indian IPO analyst. Today is {date_str}, {time_str}.
 
-Search for:
-1. "IPO closing today India {date_str}"
-2. "IPO last day to apply {date_str} India"
-3. "IPO subscription status today {date_str}"
-4. "IPO GMP today grey market premium {date_str}"
+Verify active IPO deadlines closing today in India ({date_str}), gathering current subscription multiples and late-breaking GMP adjustments.
 
 ONLY send this message if at least 1 IPO/FPO closes TODAY.
 If no IPO closes today, reply with exactly: NO_IPO_CLOSING_TODAY
@@ -487,15 +474,10 @@ def build_weekend_prompt() -> str:
     return f"""
 Today is {now.strftime('%A, %d %B %Y')}. Indian markets are closed on weekends.
 
-Search for:
-1. "Indian stock market weekly analysis {now.strftime('%B %Y')}"
-2. "Best stocks to watch next week India"
-3. "Global events next week affecting Indian market"
-4. "IPO open this week India"
-5. "Upcoming IPO India next 30 days {now.strftime('%B %Y')}"
-6. "IPO GMP today India grey market premium"
-7. "IPO allotment result this week India"
-8. "IPO listing next week NSE BSE"
+Provide a macro weekly digest containing:
+1. Indian stock market comprehensive weekly summary for {now.strftime('%B %Y')}.
+2. Global macro events lined up for next week.
+3. Forthcoming IPO/FPO parameters and pipeline analytics.
 
 Send a weekend investor update in this format:
 
@@ -553,8 +535,8 @@ def run_morning_report():
         dbg("Weekend — skipping morning report.")
         return
     dbg("=== STARTING MORNING REPORT ===")
-    send_telegram("🔄 _Scanning markets, searching news, building your report... please wait ~60 seconds..._")
-    result = call_gemini(build_prompt("morning"), context="morning_report")
+    send_telegram("🔄 _Scanning markets, parsing metrics, building your Groq analysis report... please wait..._")
+    result = call_groq(build_prompt("morning"), context="morning_report")
     if result.startswith("[ERROR]"):
         dbg("Morning report failed — error already sent to Telegram.")
         return
@@ -569,7 +551,7 @@ def run_ipo_closing_reminder():
         dbg("Weekend — skipping IPO closing reminder.")
         return
     dbg("=== CHECKING IPO CLOSING REMINDER ===")
-    result = call_gemini(build_ipo_closing_prompt(), context="ipo_closing")
+    result = call_groq(build_ipo_closing_prompt(), context="ipo_closing")
     if result.startswith("[ERROR]"):
         dbg("IPO closing check failed — error already sent to Telegram.")
         return
@@ -587,7 +569,7 @@ def run_midday_report():
         dbg("Weekend — skipping midday report.")
         return
     dbg("=== STARTING MIDDAY REPORT ===")
-    result = call_gemini(build_prompt("midday"), context="midday_report")
+    result = call_groq(build_prompt("midday"), context="midday_report")
     if result.startswith("[ERROR]"):
         dbg("Midday report failed — error already sent to Telegram.")
         return
@@ -602,7 +584,7 @@ def run_evening_report():
         dbg("Weekend — skipping evening report.")
         return
     dbg("=== STARTING EVENING REPORT ===")
-    result = call_gemini(build_prompt("evening"), context="evening_report")
+    result = call_groq(build_prompt("evening"), context="evening_report")
     if result.startswith("[ERROR]"):
         dbg("Evening report failed — error already sent to Telegram.")
         return
@@ -617,7 +599,7 @@ def run_weekend_tip():
         dbg("Weekday — skipping weekend tip.")
         return
     dbg("=== STARTING WEEKEND TIP ===")
-    result = call_gemini(build_weekend_prompt(), context="weekend_tip")
+    result = call_groq(build_weekend_prompt(), context="weekend_tip")
     if result.startswith("[ERROR]"):
         dbg("Weekend tip failed — error already sent to Telegram.")
         return
@@ -638,7 +620,7 @@ if __name__ == "__main__":
     missing = [k for k, v in {
         "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
         "TELEGRAM_CHAT_ID":   TELEGRAM_CHAT_ID,
-        "GOOGLE_API_KEY":     GOOGLE_API_KEY,
+        "GROQ_API_KEY":       GROQ_API_KEY,
     }.items() if not v]
     if missing:
         print(f"[CRITICAL] Missing environment variables: {', '.join(missing)}")
