@@ -2,15 +2,16 @@ name: Stock Alert Bot
 
 on:
   schedule:
-    - cron: '0 3 * * 1-5'
-    - cron: '30 5 * * 1-5'
-    - cron: '30 6 * * 1-5'
-    - cron: '15 10 * * 1-5'
-    - cron: '30 4 * * 6'
+    # Schedule mapping explicitly tracking Indian Market hours (UTC conversion)
+    - cron: '0 3 * * 1-5'   # 8:30 AM IST (Morning Prep Briefing)
+    - cron: '30 5 * * 1-5'  # 11:00 AM IST (IPO Status Check Window)
+    - cron: '30 6 * * 1-5'  # 12:00 PM IST (Midday Trading Update)
+    - cron: '15 10 * * 1-5' # 3:45 PM IST (Post-Market Close Summary & Review)
+    - cron: '30 4 * * 6'    # Saturday 10:00 AM IST (Weekend Planning Tip)
   workflow_dispatch:
     inputs:
       report_type:
-        description: 'Report to run'
+        description: 'Report to run manually'
         required: true
         default: 'morning'
         type: choice
@@ -36,7 +37,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests pytz
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pytz yfinance
 
       - name: Determine report type from schedule
         id: report-type
