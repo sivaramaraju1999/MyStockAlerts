@@ -21,7 +21,7 @@ Start with small position sizes and never risk more than you can afford to lose.
 Past performance does not guarantee future results.
 
 Author: Enhanced for live trading with free NSE data
-Version: 3.1 (Free Data Ready)
+Version: 3.2 (Robust Request Architecture)
 Last Updated: 2026-06-23
 """
 
@@ -40,8 +40,8 @@ from abc import ABC, abstractmethod
 # CREDENTIALS — loaded from environment variables
 # ─────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
-GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -67,10 +67,10 @@ MARKET_CLOSE = IST.localize(datetime.now().replace(hour=15, minute=30, second=0)
 # ─────────────────────────────────────────────
 # RETRY CONFIGURATION
 # ─────────────────────────────────────────────
-GROQ_TIMEOUT         = 180          # seconds per attempt
-GROQ_MAX_RETRIES     = 3
-GROQ_RETRY_DELAY     = 15           # seconds between retries
-TELEGRAM_TIMEOUT     = 30
+GROQ_TIMEOUT = 180           # seconds per attempt
+GROQ_MAX_RETRIES = 3
+GROQ_RETRY_DELAY = 15          # seconds between retries
+TELEGRAM_TIMEOUT = 30
 TELEGRAM_MAX_RETRIES = 3
 TELEGRAM_RETRY_DELAY = 5
 
@@ -106,8 +106,8 @@ def send_telegram(message: str, is_error: bool = False):
     for idx, chunk in enumerate(chunks):
         dbg(f"Sending Telegram chunk {idx+1}/{len(chunks)} ({len(chunk)} chars)...")
         payload = {
-            "chat_id":    TELEGRAM_CHAT_ID,
-            "text":       chunk,
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": chunk,
             "parse_mode": "Markdown",
         }
         for attempt in range(1, TELEGRAM_MAX_RETRIES + 1):
@@ -126,8 +126,8 @@ def send_telegram(message: str, is_error: bool = False):
                     dbg("[ERROR] All Telegram retries exhausted for this chunk. Trying plain text...")
                     try:
                         plain_payload = {
-                            "chat_id":    TELEGRAM_CHAT_ID,
-                            "text":       chunk,
+                            "chat_id": TELEGRAM_CHAT_ID,
+                            "text": chunk,
                             "parse_mode": "",
                         }
                         r2 = requests.post(url, json=plain_payload, timeout=TELEGRAM_TIMEOUT)
@@ -237,9 +237,9 @@ def call_groq(prompt: str, context: str = "groq_call") -> str:
 # PROMPTS - OPTIMIZED FOR ACTIONABLE INDIAN MARKET ADVICE
 # ─────────────────────────────────────────────
 def build_prompt(report_type: str) -> str:
-    now       = get_ist_now()
-    date_str  = now.strftime("%A, %d %B %Y")
-    time_str  = now.strftime("%I:%M %p IST")
+    now = get_ist_now()
+    date_str = now.strftime("%A, %d %B %Y")
+    time_str = now.strftime("%I:%M %p IST")
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
     open_mins = max(0, int((market_open - now).total_seconds() // 60))
 
@@ -572,92 +572,6 @@ def build_prompt(report_type: str) -> str:
         _Fixed income advice. Not SEBI registered. Use RBI Retail Direct or broker platforms for execution._
         """
 
-    elif report_type == "ipo":
-        return f"""
-        You are an expert Indian IPO analyst specializing in RETAIL APPLICATION STRATEGIES for maximizing allotment chances within SEBI's regulatory framework. Today is {date_str}, {time_str}.
-
-        YOUR MISSION:
-        1. Identify IPOs/FPOs closing TODAY that retail investors should consider (mainboard & SME)
-        2. Provide SPECIFIC, ACTIONABLE strategies to MAXIMIZE allotment probability (SEBI lottery system)
-        3. Give exact timing and execution instructions for manual application
-        4. Provide profit-taking strategies if allotted (manual execution)
-        5. Remind that SEBI uses pro-rata lottery for RII - no gaming possible, only optimization
-
-        ONLY send this message if at least 1 IPO/FPO closes TODAY with decent fundamentals.
-        If no IPO closes today OR all closing IPOs are poor quality (GMP < 10%, weak fundamentals), reply with exactly: NO_IPO_CLOSING_TODAY
-
-        ANALYZE EACH IPO (INDIAN MARKET FOCUS):
-        1. Subscription data (latest) from NSE/BSE - retail, NII, QIB portions
-        2. Grey Market Premium (GMP) trends and accuracy (sources: Chittorgarh, IPO Watch)
-        3. Fundamentals: business model, financials (quarterly), valuation, promoter holding
-        4. Issue size and price band (₹ amounts)
-        5. Lot size and application process (ASBA/UPI via banks/brokers)
-        6. Listing exchange and expected date
-        7. Risk factors from DRHP
-
-        If IPOs are closing today, use this format:
-
-        ⏰ *LAST CHANCE — IPO CLOSING TODAY!*
-        _{time_str} | {date_str}_
-
-        🎯 *RETAIL ALLOTMENT MAXIMIZATION (SEBI LOTTERY SYSTEM)*
-        These tactics IMPROVE your chances in the pro-rata lottery:
-        • Apply at CUT-OFF price - NEVER at band lower/upper (mathematically optimal)
-        • Use 3-4 demat accounts (different PAN cards - spouse, parents, adult children)
-        • Apply for EXACTLY 1 lot per account (SEBI pro-rata: more lots ≠ higher probability)
-        • Submit application BEFORE 1:00 PM IST (earlier submission = better technical success)
-        • Approve UPI mandate IMMEDIATELY after Application No. is generated (within 5 mins)
-        • Avoid applying between 2:30-3:00 PM IST (high technical rejection window per NSE)
-        • If applying via ASBA, ensure sufficient balance in linked bank account (to avoid rejection)
-        • Double-check DP ID and Client ID before submitting (common rejection reason)
-        • Consider applying through broker vs direct bank (some have better success rates)
-
-        For EACH IPO closing today with DECENT fundamentals (GMP > 15%, reasonable valuation):
-
-        🔔 *[COMPANY NAME] IPO — CLOSES TODAY {date_str}*
-           Issue Price: ₹[XXX] - ₹[YYY] | Lot: [Z shares] = ₹[Investment per lot]
-           Current Subscription: Retail [R]x | HNI [H]x | QIB [Q]x | Total [T]x
-           GMP Right Now: ₹[G] ([+P]% profit per lot if listed at GMP)
-           GMP Trend: [Rising/Falling/Stable] over last 3 days (source: Chittorgarh)
-           Listing Expectations: [NSE/BSE] on [Date]
-
-           📊 FUNDAMENTALS SNAPSHOT (investment quality for retail):
-           • Business: [1 line - what they actually do, simple]
-           • Quarterly Results: [Profit: ₹X cr or Loss: ₹Y cr] - [QoQ/YoY change]
-           • Debt:Equity: [ratio] - [Trend: Improving/Deteriorating/Stable]
-           • Promoter Holding: [X]% - [Pledged: Y% or Nil]
-           • Valuation: P/E [X] vs Industry Median [Y] - [Undervalued/Fair/Overvalued]
-           • Revenue Growth (3Y CAGR): [X]% - [Source: Moneycontrol/ screener]
-           • ROE: [X]% - [Last FY]
-           • IPO Price vs Fair Value: [Discount/Premium] of [Z]% (based on avg peer multiples)
-
-           ✅ SHOULD YOU APPLY FOR ALLOTMENT?
-           Verdict: [STRONGLY APPLY / APPLY / WEAK APPLY / AVOID]
-           Allotment Probability: [High/Medium/Low] - [Estimated % chance based on subscription]
-           Reason: [2-3 specific reasons - e.g., "Strong Q3 results, retail subscription < 15x, promoter buying"]
-
-           ⚡ EXECUTION TIMELINE (MANUAL PROCESS):
-           • Best Time to Apply: [HH:MM] - [HH:MM] IST (e.g., "11:00 AM - 1:00 PM")
-           • UPI Approval Deadline: [HH:MM] IST (do not delay - typically 5 PM same day)
-           • Application No. Check: [Specific time after applying - e.g., "Check SMS/email in 10 mins"]
-           • Status Check: [Where to check - e.g., "Broker portal or bank's ASBA portal"]
-
-           💰 PROFIT STRATEGY IF ALLOTTED (MANUAL EXECUTION):
-           • At GMP Listing: Sell [X]% immediately (profit booking), hold [Y]% for [Z] days
-           • Target Price: ₹[Value] ([A]% gain from issue price)
-           • Stop Loss: ₹[Value] ([B]% loss from listing price)
-           • Hold Categorisation: [Flip for listing gain / Hold for 1 month / Hold for 6 months+ based on fundamentals]
-           • Relay: [If applicable - e.g., "Consider selling 50% on listing, rest based on quarterly results"]
-
-           📅 KEY DATES:
-           • Allotment: [Date] (check after 5:00 PM via registrar/broker/bank)
-           • Listing: [Date] on [Exchange] - trading starts at [time]
-           • Registrar: [Name] — Check status at: [URL - e.g., "Link Intime: www.linkintime.co.in"]
-           • Bank A/c Unblock: [Date] (typically allotment date + 1 day - check with bank)
-
-        _Apply only after verifying fundamentals. Not SEBI registered advice. Manual application required._
-        """
-
     elif report_type == "weekend":
         return f"""
         Today is {now.strftime('%A, %d %B %Y')}. Indian markets are closed on weekends.
@@ -697,8 +611,8 @@ def build_prompt(report_type: str) -> str:
         📈 *NEXT WEEK'S TRADING OPPORTUNITIES (INDIAN MARKET)*
         • Expected Volatility: [High/Medium/Low] - [reason - e.g., "High due to RBI policy + global cues"]
         • Key Levels to Watch:
-            - Nifty: Support [X] (based on Volume Profile), Resistance [Y]
-            - Bank Nifty: Support [X], Resistance [Y]
+             - Nifty: Support [X] (based on Volume Profile), Resistance [Y]
+             - Bank Nifty: Support [X], Resistance [Y]
         • Sector in Focus: [Sector] - [specific reason - e.g., "Anticipating strong Q3 results in Banking"]
         • Stocks to Watch Long: [Stock 1] ([NSE: SYMBOL] - [reason - e.g., "Breaking 200 DMA on volume"]), [Stock 2], [Stock 3]
         • Stocks to Watch Short: [Stock 1] ([NSE: SYMBOL] - [reason - e.g., "Facing resistance + deteriorating fundamentals"]), [Stock 2]
@@ -725,7 +639,7 @@ def build_prompt(report_type: str) -> str:
     return ""
 
 def build_ipo_closing_prompt() -> str:
-    now      = get_ist_now()
+    now = get_ist_now()
     date_str = now.strftime("%A, %d %B %Y")
     time_str = now.strftime("%I:%M %p IST")
     return f"""
@@ -770,48 +684,48 @@ def build_ipo_closing_prompt() -> str:
     For EACH IPO closing today with DECENT fundamentals (GMP > 15%, reasonable valuation):
 
     🔔 *[COMPANY NAME] IPO — CLOSES TODAY {date_str}*
-       Issue Price: ₹[XXX] - ₹[YYY] | Lot: [Z shares] = ₹[Investment per lot]
-       Current Subscription: Retail [R]x | HNI [H]x | QIB [Q]x | Total [T]x
-       GMP Right Now: ₹[G] ([+P]% profit per lot if listed at GMP)
-       GMP Trend: [Rising/Falling/Stable] over last 3 days (source: Chittorgarh)
-       Listing Expectations: [NSE/BSE] on [Date]
+        Issue Price: ₹[XXX] - ₹[YYY] | Lot: [Z shares] = ₹[Investment per lot]
+        Current Subscription: Retail [R]x | HNI [H]x | QIB [Q]x | Total [T]x
+        GMP Right Now: ₹[G] ([+P]% profit per lot if listed at GMP)
+        GMP Trend: [Rising/Falling/Stable] over last 3 days (source: Chittorgarh)
+        Listing Expectations: [NSE/BSE] on [Date]
 
-       📊 FUNDAMENTALS SNAPSHOT (investment quality for retail):
-       • Business: [1 line - what they actually do, simple]
-           • Quarterly Results: [Profit: ₹X cr or Loss: ₹Y cr] - [QoQ/YoY change]
-           • Debt:Equity: [ratio] - [Trend: Improving/Deteriorating/Stable]
-           • Promoter Holding: [X]% - [Pledged: Y% or Nil]
-           • Valuation: P/E [X] vs Industry Median [Y] - [Undervalued/Fair/Overvalued]
-           • Revenue Growth (3Y CAGR): [X]% - [Source: Moneycontrol/ screener]
-           * ROE: [X]% - [Last FY]
-           * IPO Price vs Fair Value: [Discount/Premium] of [Z]% (based on avg peer multiples)
+        📊 FUNDAMENTALS SNAPSHOT (investment quality for retail):
+        • Business: [1 line - what they actually do, simple]
+            • Quarterly Results: [Profit: ₹X cr or Loss: ₹Y cr] - [QoQ/YoY change]
+            • Debt:Equity: [ratio] - [Trend: Improving/Deteriorating/Stable]
+            • Promoter Holding: [X]% - [Pledged: Y% or Nil]
+            • Valuation: P/E [X] vs Industry Median [Y] - [Undervalued/Fair/Overvalued]
+            • Revenue Growth (3Y CAGR): [X]% - [Source: Moneycontrol/ screener]
+            * ROE: [X]% - [Last FY]
+            * IPO Price vs Fair Value: [Discount/Premium] of [Z]% (based on avg peer multiples)
 
-           ✅ SHOULD YOU APPLY FOR ALLOTMENT?
-           Verdict: [STRONGLY APPLY / APPLY / WEAK APPLY / AVOID]
-           Allotment Probability: [High/Medium/Low] - [Estimated % chance based on subscription]
-           Reason: [2-3 specific reasons - e.g., "Strong Q3 results, retail subscription < 15x, promoter buying"]
+            ✅ SHOULD YOU APPLY FOR ALLOTMENT?
+            Verdict: [STRONGLY APPLY / APPLY / WEAK APPLY / AVOID]
+            Allotment Probability: [High/Medium/Low] - [Estimated % chance based on subscription]
+            Reason: [2-3 specific reasons - e.g., "Strong Q3 results, retail subscription < 15x, promoter buying"]
 
-           ⚡ EXECUTION TIMELINE (MANUAL PROCESS):
-           • Best Time to Apply: [HH:MM] - [HH:MM] IST (e.g., "11:00 AM - 1:00 PM")
-           • UPI Approval Deadline: [HH:MM] IST (do not delay - typically 5 PM same day)
-           • Application No. Check: [Specific time after applying - e.g., "Check SMS/email in 10 mins"]
-           • Status Check: [Where to check - e.g., "Broker portal or bank's ASBA portal"]
+            ⚡ EXECUTION TIMELINE (MANUAL PROCESS):
+            • Best Time to Apply: [HH:MM] - [HH:MM] IST (e.g., "11:00 AM - 1:00 PM")
+            • UPI Approval Deadline: [HH:MM] IST (do not delay - typically 5 PM same day)
+            • Application No. Check: [Specific time after applying - e.g., "Check SMS/email in 10 mins"]
+            • Status Check: [Where to check - e.g., "Broker portal or bank's ASBA portal"]
 
-           💰 PROFIT STRATEGY IF ALLOTTED (MANUAL EXECUTION):
-           • At GMP Listing: Sell [X]% immediately (profit booking), hold [Y]% for [Z] days
-           • Target Price: ₹[Value] ([A]% gain from issue price)
-           • Stop Loss: ₹[Value] ([B]% loss from listing price)
-           • Hold Categorisation: [Flip for listing gain / Hold for 1 month / Hold for 6 months+ based on fundamentals]
-           • Relay: [If applicable - e.g., "Consider selling 50% on listing, rest based on quarterly results"]
+            💰 PROFIT STRATEGY IF ALLOTTED (MANUAL EXECUTION):
+            • At GMP Listing: Sell [X]% immediately (profit booking), hold [Y]% for [Z] days
+            • Target Price: ₹[Value] ([A]% gain from issue price)
+            • Stop Loss: ₹[Value] ([B]% loss from listing price)
+            • Hold Categorisation: [Flip for listing gain / Hold for 1 month / Hold for 6 months+ based on fundamentals]
+            • Relay: [If applicable - e.g., "Consider selling 50% on listing, rest based on quarterly results"]
 
-           📅 KEY DATES:
-           • Allotment: [Date] (check after 5:00 PM via registrar/broker/bank)
-           • Listing: [Date] on [Exchange] - trading starts at [time]
-           • Registrar: [Name] — Check status at: [URL - e.g., "Link Intime: www.linkintime.co.in"]
-           * Bank A/c Unblock: [Date] (typically allotment date + 1 day - check with bank)
+            📅 KEY DATES:
+            • Allotment: [Date] (check after 5:00 PM via registrar/broker/bank)
+            • Listing: [Date] on [Exchange] - trading starts at [time]
+            • Registrar: [Name] — Check status at: https://www.linkintime.co.in/
+            * Bank A/c Unblock: [Date] (typically allotment date + 1 day - check with bank)
 
-        _Apply only after verifying fundamentals. Not SEBI registered advice. Manual application required._
-        """
+    _Apply only after verifying fundamentals. Not SEBI registered advice. Manual application required._
+    """
 
 
 # ─────────────────────────────────────────────
@@ -850,49 +764,48 @@ class NSEFreeFeed(BrokerPriceFeed):
 
     def __init__(self):
         self.session = requests.Session()
-        # Set headers to mimic a real browser
+        # Set dynamic browser headers to avoid 403 blocks
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Referer': 'https://www.nseindia.com/',
         })
-        # Initialize session by getting NSE home page to set cookies
         self._initialize_session()
 
     def _initialize_session(self):
-        """Get NSE home page to set necessary cookies"""
+        """Get NSE home page to setup session cookies natively and stop 403s"""
         try:
+            self.session.cookies.clear()
+            # Hit the root URL to accept cookies
             response = self.session.get('https://www.nseindia.com', timeout=10)
             response.raise_for_status()
-            dbg("NSE session initialized successfully")
+            # Secondary access to register routing variables
+            _ = self.session.get('https://www.nseindia.com/market-data/live-equity-market', timeout=10)
+            dbg("NSE session and cookie jars refreshed successfully")
         except Exception as e:
             dbg(f"Failed to initialize NSE session: {e}")
-            # We'll still try to use the session - might work without cookies for some endpoints
 
     def get_ltp(self, symbol: str) -> float:
         """Get LTP from NSE public API"""
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # Format symbol for NSE (e.g., RELIANCE)
                 url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol.upper()}"
                 response = self.session.get(url, timeout=10)
 
                 if response.status_code == 200:
                     data = response.json()
-                    # Extract LTP from NSE response
                     if 'priceInfo' in data and 'lastPrice' in data['priceInfo']:
                         return float(data['priceInfo']['lastPrice'])
                     else:
                         dbg(f"Unexpected NSE response structure for {symbol}: {data}")
-                elif response.status_code == 401:
-                    # Session might have expired, reinitialize
-                    dbg(f"NSE API returned 401 for {symbol}, reinitializing session...")
+                elif response.status_code in [401, 403]:
+                    dbg(f"NSE API returned {response.status_code} for {symbol}, rebuilding cookie context...")
                     self._initialize_session()
-                    continue  # Retry with new session
+                    continue  # Retry with a clean session pool
                 else:
                     dbg(f"NSE API returned status {response.status_code} for {symbol}")
 
@@ -906,7 +819,7 @@ class NSEFreeFeed(BrokerPriceFeed):
                 dbg(f"Error fetching LTP from NSE for {symbol}: {e}")
 
             if attempt < max_retries - 1:
-                time.sleep(2)  # Wait before retry
+                time.sleep(2)
 
         dbg(f"Failed to get LTP for {symbol} after {max_retries} attempts")
         return 0.0
@@ -923,18 +836,17 @@ class NSEFreeFeed(BrokerPriceFeed):
                     data = response.json()
                     if 'priceInfo' in data:
                         price_info = data['priceInfo']
-                        # Extract OHLC data
                         ohlc = {
                             'open': float(price_info.get('open', 0)),
                             'high': float(price_info.get('intraDayHighLow', {}).get('max', 0)),
                             'low': float(price_info.get('intraDayHighLow', {}).get('min', 0)),
-                            'close': float(price_info.get('lastPrice', 0))  # LTP as current close
+                            'close': float(price_info.get('lastPrice', 0))
                         }
                         return ohlc
                     else:
                         dbg(f"Unexpected NSE response structure for {symbol} OHLC: {data}")
-                elif response.status_code == 401:
-                    dbg(f"NSE API returned 401 for {symbol} OHLC, reinitializing session...")
+                elif response.status_code in [401, 403]:
+                    dbg(f"NSE API returned {response.status_code} for {symbol} OHLC, reinitializing...")
                     self._initialize_session()
                     continue
                 else:
@@ -956,36 +868,7 @@ class NSEFreeFeed(BrokerPriceFeed):
         return {}
 
     def is_market_open(self) -> bool:
-        """Check market hours - NSE doesn't have public market status API, use time-based"""
         return is_market_open()
-
-
-# Broker factory - now uses FREE NSE data source only
-def create_broker_feed() -> BrokerPriceFeed:
-    """
-    Create a broker feed instance - uses FREE NSE data source
-    Returns: NSEFreeFeed instance or None if initialization fails
-    """
-    try:
-        dbg("Initializing FREE NSE data source...")
-        feed = NSEFreeFeed()
-        # Test the connection with a known symbol
-        test_price = feed.get_ltp("RELIANCE")
-        if test_price > 0:
-            dbg(f"✓ FREE NSE data source connected successfully (RELIANCE LTP: ₹{test_price})")
-            return feed
-        else:
-            dbg("⚠️  FREE NSE data source connected but couldn't get valid price")
-            return feed  # Still return it - might work for other symbols
-    except Exception as e:
-        dbg(f"✗ Failed to initialize FREE NSE data source: {e}")
-        dbg("   Falling back to SIMULATION MODE")
-        return None
-
-
-# Global monitor instance (will be initialized with free NSE feed if available)
-broker_feed = create_broker_feed()
-monitor = IntradayMonitor(broker_feed)
 
 
 # ─────────────────────────────────────────────
@@ -1037,7 +920,6 @@ class IntradayMonitor:
 
     def get_day_open_price(self, symbol: str) -> float:
         """Get day's open price - from broker if available, else from our records"""
-        # Try to get from broker first (more accurate)
         if self.broker:
             try:
                 ohlc = self.broker.get_ohlc(symbol)
@@ -1046,7 +928,6 @@ class IntradayMonitor:
             except Exception as e:
                 dbg(f"Error fetching OHLC for {symbol} from broker: {e}")
 
-        # Fallback to our recorded open price
         return self.day_open_prices.get(symbol, 0.0)
 
     def check_price_move(self, symbol: str, current_price: float) -> float:
@@ -1058,7 +939,6 @@ class IntradayMonitor:
         if open_price == 0:
             return 0.0
 
-        # Calculate percentage move down from open
         move_down_pct = ((open_price - current_price) / open_price) * 100
         return move_down_pct
 
@@ -1072,7 +952,6 @@ class IntradayMonitor:
 
         current_level = self.alerts_sent[symbol]
 
-        # Determine new alert level based on move down
         new_level = 0
         if move_down_pct >= DOWNSIDE_ALERT_3:
             new_level = 3
@@ -1081,7 +960,6 @@ class IntradayMonitor:
         elif move_down_pct >= DOWNSIDE_ALERT_1:
             new_level = 1
 
-        # Only alert if we've reached a new level and haven't maxed out
         if new_level > current_level and current_level < MAX_ALERTS_PER_STOCK:
             return new_level
         return 0
@@ -1096,7 +974,6 @@ class IntradayMonitor:
         current_price = open_price - ((move_down_pct / 100) * open_price)
         now = get_ist_now().strftime("%I:%M %p IST")
 
-        # Get signal context if available
         context_msg = ""
         if symbol in self.last_signal_context:
             signal = self.last_signal_context[symbol]
@@ -1107,7 +984,6 @@ class IntradayMonitor:
                 f"• Original Entry: {signal.get('entry_zone', 'N/A')}\n"
             )
 
-        # Determine alert severity
         if alert_level == 1:
             emoji = "🟡"
             severity = "WARNING"
@@ -1116,7 +992,7 @@ class IntradayMonitor:
             emoji = "🟠"
             severity = "ALERT"
             action = "Consider reducing position size or tightening stops"
-        else:  # alert_level == 3
+        else:
             emoji = "🔴"
             severity = "CRITICAL"
             action = "Strongly consider exiting - significant adverse move from open"
@@ -1146,6 +1022,35 @@ class IntradayMonitor:
         dbg("Reset intraday monitoring for new day")
 
 
+# Broker factory implementation
+def create_broker_feed() -> BrokerPriceFeed:
+    """
+    Create a broker feed instance - uses FREE NSE data source
+    Returns: NSEFreeFeed instance or None if initialization fails
+    """
+    try:
+        dbg("Initializing FREE NSE data source...")
+        feed = NSEFreeFeed()
+        test_price = feed.get_ltp("RELIANCE")
+        if test_price > 0:
+            dbg(f"✓ FREE NSE data source connected successfully (RELIANCE LTP: ₹{test_price})")
+            return feed
+        else:
+            dbg("⚠️  FREE NSE data source connected but couldn't get valid price")
+            return feed  
+    except Exception as e:
+        dbg(f"✗ Failed to initialize FREE NSE data source: {e}")
+        dbg("   Falling back to SIMULATION MODE")
+        return None
+
+
+# ─────────────────────────────────────────────
+# INSTANTIATE GLOBAL INSTANCES (After class declarations to avoid NameError)
+# ─────────────────────────────────────────────
+broker_feed = create_broker_feed()
+monitor = IntradayMonitor(broker_feed)
+
+
 # ─────────────────────────────────────────────
 # SIGNAL GENERATION FUNCTIONS
 # ─────────────────────────────────────────────
@@ -1163,25 +1068,19 @@ def run_morning_report():
     dbg(f"Morning report ready — {len(result)} chars. Sending to Telegram...")
     send_telegram(result)
 
-    # Extract stock symbols from signal for monitoring context
-    # In a real implementation, this would parse the result to get symbols
-    # For now, we'll note that signal context would be updated externally
-    # In practice, you might save signals to a file and have the monitor read them
-    # For this example, we'll use a predefined list - in reality, this comes from signals
     example_symbols_from_signals = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
                                    "SBIN", "BHARTIARTL", "ITC", "LT", "ASIANPAINT"]
     monitor.add_symbols_to_monitor(example_symbols_from_signals)
 
-    # Try to get and set day's open prices for these symbols
     if broker_feed:
         dbg("Fetching day's open prices from FREE NSE data source...")
         for symbol in example_symbols_from_signals:
             open_price = monitor.get_day_open_price(symbol)
             if open_price > 0:
                 monitor.set_day_open(symbol, open_price)
+            time.sleep(1.5)  # Rotational stagger delay to protect IP footprint
     else:
         dbg("No broker available - will use simulated prices for demonstration")
-        # Set simulated open prices for demonstration
         import random
         for symbol in example_symbols_from_signals:
             if symbol not in monitor.day_open_prices:
@@ -1191,7 +1090,6 @@ def run_morning_report():
     dbg("=== MORNING REPORT DONE ===")
 
 def run_bond_focus_report():
-    now = get_ist_now()
     dbg("=== STARTING BOND FOCUS REPORT ===")
     send_telegram("🔄 _Analyzing Indian bond market opportunities..._")
     result = call_groq(build_prompt("bond_focus"), context="bond_report")
@@ -1276,10 +1174,8 @@ def run_intraday_monitor():
         dbg("⚠️  WARNING: No broker connected - using SIMULATION MODE")
         dbg("   For live data, ensure you have internet access to reach NSE India")
 
-    # Reset for new day
     monitor.reset_daily()
 
-    # Send startup message
     start_msg = (
         f"📡 *FREE NSE INTRADAY DOWNSIDE MONITOR STARTED*\n"
         f"_{get_ist_now().strftime('%A, %d %B %Y %I:%M %p IST')}_\n\n"
@@ -1293,36 +1189,30 @@ def run_intraday_monitor():
 
     try:
         while is_market_open():
-            # Get current list of symbols to monitor
             symbols_to_check = list(monitor.symbols_to_monitor)
             if not symbols_to_check:
                 dbg("No symbols to monitor - waiting for signals...")
                 time.sleep(MONITOR_INTERVAL)
                 continue
 
-            # Process each symbol
             for symbol in symbols_to_check:
                 try:
-                    # Get live price from broker (NSE free feed)
                     current_price = monitor.get_live_price(symbol)
-
                     if current_price <= 0:
-                        # If we can't get live price, skip this symbol for this cycle
                         continue
 
-                    # Check for downside move from day's open
                     move_down_pct = monitor.check_price_move(symbol, current_price)
-
-                    # Determine if we should alert
                     alert_level = monitor.should_alert(symbol, move_down_pct)
                     if alert_level > 0:
                         monitor.send_downside_alert(symbol, move_down_pct, alert_level)
+
+                    # Throttle loop iterations natively to avoid traffic flags
+                    time.sleep(1.5)
 
                 except Exception as e:
                     dbg(f"Error processing {symbol} in monitor loop: {e}")
                     continue
 
-            # Wait before next check
             time.sleep(MONITOR_INTERVAL)
 
     except KeyboardInterrupt:
@@ -1331,7 +1221,6 @@ def run_intraday_monitor():
         dbg(f"Monitor error: {e}")
         send_error_to_telegram("Intraday Monitor Runtime Error", str(e))
     finally:
-        # Send shutdown message
         end_msg = (
             f"🛑 *INTRADAY DOWNSIDE MONITOR STOPPED*\n"
             f"_{get_ist_now().strftime('%A, %d %B %Y %I:%M %p IST')}_\n\n"
@@ -1356,12 +1245,10 @@ def run_scheduler():
             now = get_ist_now()
             current_time = now.strftime("%H:%M")
 
-            # Check if it's time to run any scheduled reports
             for report_type, time_str in SIGNAL_INTERVALS.items():
                 if current_time == time_str and last_run[report_type] != current_time:
                     dbg(f"Time to run {report_type} report")
 
-                    # Run the appropriate report function
                     if report_type == "morning":
                         run_morning_report()
                     elif report_type == "midday":
@@ -1377,7 +1264,6 @@ def run_scheduler():
 
                     last_run[report_type] = current_time
 
-            # Sleep for a minute before checking again
             time.sleep(60)
 
     except KeyboardInterrupt:
@@ -1391,7 +1277,6 @@ def run_scheduler():
 # ENTRY POINT
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # Check credentials for core services
     if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GROQ_API_KEY]):
         print("[CRITICAL] Missing core environment variables:")
         print("  TELEGRAM_BOT_TOKEN=your_telegram_bot_token")
@@ -1399,7 +1284,6 @@ if __name__ == "__main__":
         print("  GROQ_API_KEY=your_groq_api_key")
         sys.exit(1)
 
-    # Determine mode from command line argument
     if len(sys.argv) > 1:
         mode = sys.argv[1].lower()
     else:
@@ -1420,21 +1304,14 @@ if __name__ == "__main__":
     elif mode == "monitor":
         run_intraday_monitor()
     elif mode == "schedule":
-        # Run both scheduler and monitor in parallel
         dbg("Starting scheduler and monitor in parallel...")
-
-        # Start scheduler in background thread
         scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
         scheduler_thread.start()
-
-        # Run monitor in main thread
         run_intraday_monitor()
     elif mode == "setup-broker":
-        # Helper mode to test broker connection
         dbg("Testing FREE NSE data source connection...")
         if broker_feed:
             dbg(f"✓ Successfully connected to {type(broker_feed).__name__}")
-            # Test fetching a sample price
             test_price = broker_feed.get_ltp("RELIANCE")
             if test_price > 0:
                 dbg(f"✓ Sample LTP for RELIANCE: ₹{test_price}")
@@ -1442,62 +1319,20 @@ if __name__ == "__main__":
                 dbg("⚠️  Connected but couldn't get valid sample price")
         else:
             dbg("✗ FREE NSE data source not available - using simulation")
-            print("\nTo use FREE NSE data source, ensure you have:")
-            print("1. Internet access to reach www.nseindia.com")
-            print("2. The 'requests' library installed (pip install requests)")
-            print("\nIf NSE is blocking your IP, you may need to:")
-            print("- Use a VPN or proxy")
-            print("- Run during off-peak hours")
-            print("- Add more delay between requests")
-    elif mode == "help" or mode == "--help" or mode == "-h":
+    elif mode in ["help", "--help", "-h"]:
         print("""
 LIVE TRADING INDIAN BOT WITH FREE NSE DATA
 ==========================================
-
 Modes of operation:
-
-  python bot_live_trading.py morning    - Generate pre-market trading signals
-  python bot_live_trading.py bond       - Generate bond investment analysis
-  python bot_live_trading.py ipo        - Generate IPO closing reminders
-  python bot_live_trading.py midday     - Generate midday market update
-  python bot_live_trading.py evening    - Generate evening market review
-  python bot_live_trading.py weekend    - Generate weekend preparation
-  python bot_live_trading.py monitor    - Run LIVE intraday downside monitor (FREE NSE data)
-  python bot_live_trading.py schedule   - Run automated signal generation + live monitor
-  python bot_live_trading.py setup-broker - Test FREE NSE data connection
-
-FREE DATA FEATURES:
-• Uses NSE India's public API for real-time price data (NO BROKER API NEEDED)
-• No API keys required - uses public endpoints with proper headers
-• Handles session and cookies to avoid blocking
-• Fallback to simulation if NSE data unavailable
-• Works completely free without any broker credentials
-
-SETUP FOR LIVE TRADING:
-1. Set core environment variables:
-   TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-   TELEGRAM_CHAT_ID=your_telegram_chat_id
-   GROQ_API_KEY=your_groq_api_key
-
-2. No broker credentials needed! Uses FREE NSE data by default.
-
-EXAMPLE USAGE:
-  # Generate signals at market open:
-    08:00 AM: python bot_live_trading.py morning
-    08:05 AM: python bot_live_trading.py monitor   (or use schedule mode)
-    12:00 PM: python bot_live_trading.py midday
-    03:45 PM: python bot_live_trading.py evening
-
-  # Test FREE NSE connection:
-    python bot_live_trading.py setup-broker
-
-IMPORTANT:
-• This is educational content only - NOT SEBI registered advice
-• You must manually place all orders through your broker
-• Start with small position sizes (as suggested in signals)
-• Past performance does not guarantee future results
-• Always use stop losses and respect risk management guidelines
-• For live trading, ensure you have valid internet access to NSE India
+  python bot.py morning       - Generate pre-market trading signals
+  python bot.py bond          - Generate bond investment analysis
+  python bot.py ipo           - Generate IPO closing reminders
+  python bot.py midday        - Generate midday market update
+  python bot.py evening       - Generate evening market review
+  python bot.py weekend       - Generate weekend preparation
+  python bot.py monitor       - Run LIVE intraday downside monitor (FREE NSE data)
+  python bot.py schedule      - Run automated signal generation + live monitor
+  python bot.py setup-broker  - Test FREE NSE data connection
         """)
     else:
         print(f"Unknown mode: {mode}")
