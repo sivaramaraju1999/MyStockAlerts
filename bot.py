@@ -3,7 +3,7 @@
 UNIVERSAL LIVE INDIAN MARKET INTELLIGENCE BOT
 =============================================
 Filename: bot.py
-Version: 7.9 (100% Zero-Hardcoding Production Release Core)
+Version: 8.0 (100% Zero-Hardcoding Production Release Core)
 """
 
 import os
@@ -80,7 +80,6 @@ def fetch_live_nifty50_constituents() -> list:
         r = requests.get(url, headers=headers, timeout=15)
         r.raise_for_status()
         
-        # Parse the raw network CSV stream
         csv_stream = io.StringIO(r.content.decode('utf-8'))
         reader = csv.DictReader(csv_stream)
         
@@ -95,7 +94,6 @@ def fetch_live_nifty50_constituents() -> list:
     except Exception as e:
         dbg(f"[WARN] Official index download failed ({e}). Implementing runtime backup list.")
         
-    # Fail-safe structural safety net if the exchange file server rejects the request block
     return ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"]
 
 
@@ -257,16 +255,16 @@ def run_automated_pipeline(report_type: str):
         except Exception:
             scraped_indices[clean_name] = "Fetch Timeout"
 
-    # 2. FIXED INCOME MARKET RUNTIMEs AND BENCHMARKS (Updated Ultra-Stable Reuters Feed)
+    # 2. FIXED INCOME MARKET RUNTIMEs AND BENCHMARKS (Updated Native Fail-Safe Tracker Index)
     bond_string = "• India 10-Year Government G-Sec Yield: Data Unavailable"
     try:
-        bond_df = yf.Ticker("^IN10Y").history(period=fetch_period)
+        bond_df = yf.Ticker("NIFTYGS10YR.NS").history(period=fetch_period)
         if not bond_df.empty:
-            curr_yield = bond_df['Close'].iloc[-1]
-            prev_yield = bond_df['Close'].iloc[-2] if len(bond_df) > 1 else curr_yield
-            yield_delta = curr_yield - prev_yield
+            curr_val = bond_df['Close'].iloc[-1]
+            prev_val = bond_df['Close'].iloc[-2] if len(bond_df) > 1 else curr_val
+            pct_change = (((curr_val - prev_val) / prev_val) * 100) if prev_val > 0 else 0.0
             bond_string = (
-                f"• India 10-Year G-Sec Yield: **{curr_yield:.3f}%** ({yield_delta:+.3f} bps)\n"
+                f"• India 10-Year G-Sec Tracker Index: **{curr_val:,.2f}** ({pct_change:+.2f}% close-to-close shift)\n"
                 f"• Wholesale Debt Window: **09:00 AM – 05:00 PM IST** (Retail matching starts at 09:15 AM via terminal)"
             )
     except Exception as e:
@@ -303,7 +301,6 @@ def run_automated_pipeline(report_type: str):
     sorted_by_gains = sorted(processed_pool, key=lambda x: x['change'], reverse=True)
     sorted_by_losses = sorted(processed_pool, key=lambda x: x['change'], reverse=False)
     
-    # Safe Search strings for Groww links to avoid broken URL encodings
     gainers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol'].replace('-', ' ')})" for a in sorted_by_gains[:5]]
     losers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol'].replace('-', ' ')})" for a in sorted_by_losses[:5] if a['change'] <= 0]
 
