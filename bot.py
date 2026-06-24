@@ -3,7 +3,7 @@
 UNIVERSAL LIVE INDIAN MARKET INTELLIGENCE BOT
 =============================================
 Filename: bot.py
-Version: 7.1 (All-Day Live Update Core)
+Version: 7.2 (Production Core - Weekend & IPO Resilient)
 """
 
 import os
@@ -102,21 +102,24 @@ def call_groq(prompt: str) -> str:
 # ─────────────────────────────────────────────
 # PROMPT FORMAT LAYOUT DESIGNER
 # ─────────────────────────────────────────────
-def build_prompt(report_type: str, data_payload: dict) -> str:
+def build_prompt(report_type: str, data_payload: dict, is_weekend: bool = False) -> str:
     now = get_ist_now()
     date_str = now.strftime("%A, %d %B %Y")
     time_str = now.strftime("%I:%M %p IST")
 
-    # Dynamic status tag based on the runtime arg
-    status_mapping = {
-        "morning": "PRE-MARKET OPEN ANALYSIS",
-        "midday": "LIVE MIDDAY SNAPSHOT",
-        "evening": "MARKET CLOSE SUMMARY"
-    }
-    status_header = status_mapping.get(report_type.lower(), f"{report_type.upper()} UPDATE")
+    if is_weekend:
+        status_header = "WEEKEND MARKET WRAP"
+    else:
+        status_mapping = {
+            "morning": "PRE-MARKET OPEN ANALYSIS",
+            "midday": "LIVE MIDDAY SNAPSHOT",
+            "evening": "MARKET CLOSE SUMMARY",
+            "ipo": "IPO & NEW LISTINGS SPOTLIGHT"
+        }
+        status_header = status_mapping.get(report_type.lower(), f"{report_type.upper()} UPDATE")
 
     return f"""
-    Today is {date_str}, {time_str}. The current run window is: {status_header}.
+    Today is {date_str}, {time_str}. Context: {status_header}.
     
     INJECTED STRUCTURAL METRICS DATA:
     • Broad Index Performance: {data_payload.get('index_metrics', '')}
@@ -127,8 +130,8 @@ def build_prompt(report_type: str, data_payload: dict) -> str:
     • Macro Drivers Context: {data_payload.get('macro_triggers', '')}
 
     MISSION:
-    Format a beautiful {status_header} intelligence card. You must keep gainers and losers in their designated blocks. 
-    Assets inside 'DYNAMIC_LOSERS' belong exclusively under the '📉 BOTTOM PERFORMERS TODAY' layout block.
+    Format a beautiful, crisp {status_header} card. Keep gainers and losers separated cleanly.
+    Assets inside 'DYNAMIC_LOSERS' belong exclusively under '📉 BOTTOM PERFORMERS TODAY'.
 
     OUTPUT FORMAT Layout:
 
@@ -136,19 +139,19 @@ def build_prompt(report_type: str, data_payload: dict) -> str:
     _{time_str}_
 
     ━━━━━━━━━━━━━━━━━━━━
-    📊 *CURRENT SCORECARD (NSE/BSE)*
+    📊 *MARKET SCORECARD*
     ━━━━━━━━━━━━━━━━━━━━
     {data_payload.get('index_metrics', '')}
     • Top Sector Outperformance: {data_payload.get('sector_gainers', '')}
     • Worst Sector Profit Booking: {data_payload.get('sector_losers', '')}
 
     ━━━━━━━━━━━━━━━━━━━━
-    🏆 *TOP PERFORMERS TODAY (NSE)*
+    🏆 *TOP PERFORMERS / GAINERS (NSE)*
     ━━━━━━━━━━━━━━━━━━━━
     {data_payload.get('stock_gainers_string', '')}
 
     ━━━━━━━━━━━━━━━━━━━━
-    📉 *BOTTOM PERFORMERS TODAY (NSE)*
+    📉 *BOTTOM PERFORMERS / LAGGARDS (NSE)*
     ━━━━━━━━━━━━━━━━━━━━
     {data_payload.get('stock_losers_string', '')}
 
@@ -166,27 +169,38 @@ def build_prompt(report_type: str, data_payload: dict) -> str:
 # DATA SCRAPER INTEGRATION LAYER
 # ─────────────────────────────────────────────
 def run_automated_pipeline(report_type: str):
-    dbg(f"Initiating automated pipeline for: {report_type}")
+    now = get_ist_now()
+    is_weekend = now.weekday() in [5, 6]  # 5 = Saturday, 6 = Sunday
+    
+    dbg(f"Initiating automated pipeline for: {report_type} (Weekend={is_weekend})")
     
     # 1. SCRAPE LIVE INDIAN INDICES FROM FREE YAHOO DATA
     scraped_indices = {}
     indices_map = {"^NSEI": "Nifty 50", "^BSESN": "BSE Sensex"}
     
+    # On weekends or early pre-market hours, request a 5-day window to guarantee historical data availability
+    fetch_period = "5d" if (is_weekend or report_type == "morning") else "1d"
+    
     for ticker_id, clean_name in indices_map.items():
         try:
             ticker_obj = yf.Ticker(ticker_id)
-            df = ticker_obj.history(period="1d")
+            df = ticker_obj.history(period=fetch_period)
             if not df.empty:
                 close_p = df['Close'].iloc[-1]
-                open_p = df['Open'].iloc[0]
-                pct_change = ((close_p - open_p) / open_p) * 100
+                # If 1d window on a closed market, open might equal close, use previous row if multi-day available
+                open_p = df['Open'].iloc[-1] if len(df) == 1 else df['Close'].iloc[-2]
+                
+                if open_p > 0:
+                    pct_change = ((close_p - open_p) / open_p) * 100
+                else:
+                    pct_change = 0.0
                 scraped_indices[clean_name] = f"**{close_p:,.2f}** ({pct_change:+.2f}%)"
             else:
                 scraped_indices[clean_name] = "Data Unavailable"
         except Exception:
             scraped_indices[clean_name] = "Fetch Timeout"
 
-    # 2. RUN DYNAMIC STOCK TRACKING SNAPSHOT
+    # 2. RUN DYNAMIC STOCK TRACKING SNAPSHOT (Includes common benchmarks + sample list handles)
     dynamic_watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "CIPLA", "DRREDDY", "TATASTEEL", "SBIN", "AXISBANK"]
     yf_tickers = [f"{sym}.NS" for sym in dynamic_watchlist]
     
@@ -194,7 +208,7 @@ def run_automated_pipeline(report_type: str):
     losers_lines = []
 
     try:
-        raw_data = yf.download(yf_tickers, period="1d", group_by="ticker", progress=False)
+        raw_data = yf.download(yf_tickers, period=fetch_period, group_by="ticker", progress=False)
         processed_pool = []
         
         for sym in dynamic_watchlist:
@@ -202,8 +216,19 @@ def run_automated_pipeline(report_type: str):
             if yf_sym in raw_data.columns.levels[0]:
                 stock_df = raw_data[yf_sym]
                 if not stock_df.empty and 'Close' in stock_df:
-                    close_val = stock_df['Close'].iloc[-1]
-                    open_val = stock_df['Open'].iloc[0]
+                    # Filter out NaN elements for newly listed IPO data arrays
+                    valid_df = stock_df.dropna(subset=['Close'])
+                    if valid_df.empty:
+                        continue
+                        
+                    close_val = valid_df['Close'].iloc[-1]
+                    
+                    # Safe handling for IPO / Pre-Market data missing open frames
+                    if len(valid_df) > 1:
+                        open_val = valid_df['Close'].iloc[-2] # Performance compared to last session base
+                    else:
+                        open_val = valid_df['Open'].iloc[0]
+                        
                     if open_val > 0:
                         change_pct = ((close_val - open_val) / open_val) * 100
                         processed_pool.append({"symbol": sym, "change": change_pct, "ltp": close_val})
@@ -227,17 +252,19 @@ def run_automated_pipeline(report_type: str):
         dbg(f"Bulk data collection error: {e}")
 
     # 3. CONSOLIDATE PAYLOAD
+    macro_context = "Market closed. Displaying last active session metrics tracking data vectors." if is_weekend else f"Automated cross-asset liquidity tracking for {report_type.upper()} updates."
+    
     live_payload = {
         "index_metrics": f"• Nifty 50: {scraped_indices.get('Nifty 50', 'N/A')}\n• BSE Sensex: {scraped_indices.get('BSE Sensex', 'N/A')}",
         "sector_gainers": "Pharma / Defensives" if losers_lines else "Broad Market Inflow",
         "sector_losers": "High-Beta Growth Blocks" if losers_lines else "Omitted",
-        "stock_gainers_string": "\n".join(gainers_lines) if gainers_lines else "No dynamic gainers recorded.",
-        "stock_losers_string": "\n".join(losers_lines) if losers_lines else "No dynamic laggards recorded.",
-        "macro_triggers": f"Automated cross-asset liquidity tracking for {report_type.upper()} update vectors."
+        "stock_gainers_string": "\n".join(gainers_lines) if gainers_lines else "No performance adjustments logged.",
+        "stock_losers_string": "\n".join(losers_lines) if losers_lines else "No performance adjustments logged.",
+        "macro_triggers": macro_context
     }
 
-    # Build prompt dynamically using the run execution type
-    prompt = build_prompt(report_type, data_payload=live_payload)
+    # Build prompt dynamically
+    prompt = build_prompt(report_type, data_payload=live_payload, is_weekend=is_weekend)
     result = call_groq(prompt)
     send_telegram(result)
 
@@ -247,7 +274,5 @@ if __name__ == "__main__":
         print("[CRITICAL] Missing core environment variables.")
         sys.exit(1)
 
-    # Defaults to 'morning' if no argument is explicitly provided, 
-    # but any string passed will now process fully.
     target_report = sys.argv[1].lower() if len(sys.argv) > 1 else "morning"
     run_automated_pipeline(target_report)
