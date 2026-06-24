@@ -3,7 +3,7 @@
 UNIVERSAL LIVE INDIAN MARKET INTELLIGENCE BOT
 =============================================
 Filename: bot.py
-Version: 7.8 (100% Zero-Hardcoding - Live Nifty 50 Index Ingestion)
+Version: 7.9 (100% Zero-Hardcoding Production Release Core)
 """
 
 import os
@@ -257,10 +257,10 @@ def run_automated_pipeline(report_type: str):
         except Exception:
             scraped_indices[clean_name] = "Fetch Timeout"
 
-    # 2. FIXED INCOME MARKET RUNTIMEs AND BENCHMARKS
+    # 2. FIXED INCOME MARKET RUNTIMEs AND BENCHMARKS (Updated Ultra-Stable Reuters Feed)
     bond_string = "• India 10-Year Government G-Sec Yield: Data Unavailable"
     try:
-        bond_df = yf.Ticker("IN10Y.MY").history(period=fetch_period)
+        bond_df = yf.Ticker("IN10YT=RR").history(period=fetch_period)
         if not bond_df.empty:
             curr_yield = bond_df['Close'].iloc[-1]
             prev_yield = bond_df['Close'].iloc[-2] if len(bond_df) > 1 else curr_yield
@@ -303,8 +303,9 @@ def run_automated_pipeline(report_type: str):
     sorted_by_gains = sorted(processed_pool, key=lambda x: x['change'], reverse=True)
     sorted_by_losses = sorted(processed_pool, key=lambda x: x['change'], reverse=False)
     
-    gainers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol']})" for a in sorted_by_gains[:5]]
-    losers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol']})" for a in sorted_by_losses[:5] if a['change'] < 0]
+    # Safe Search strings for Groww links to avoid broken URL encodings
+    gainers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol'].replace('-', ' ')})" for a in sorted_by_gains[:5]]
+    losers_lines = [f"• {a['symbol']}: {a['change']:+.2f}% to Rs {a['ltp']:,.2f} → [Trade on Groww](https://groww.in/search?q={a['symbol'].replace('-', ' ')})" for a in sorted_by_losses[:5] if a['change'] <= 0]
 
     # 5. CONSOLIDATE PAYLOAD
     macro_context = "Market closed. Displaying last active session metrics tracking data vectors." if is_weekend else f"Automated cross-asset liquidity tracking and macroeconomic interest yield processing for {report_type.upper()} updates."
