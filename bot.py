@@ -3,7 +3,7 @@
 UNIVERSAL LIVE INDIAN MARKET INTELLIGENCE BOT
 =============================================
 Filename: bot.py
-Version: 7.0 (Production Core - Zero Hardcoding)
+Version: 7.1 (All-Day Live Update Core)
 """
 
 import os
@@ -107,55 +107,59 @@ def build_prompt(report_type: str, data_payload: dict) -> str:
     date_str = now.strftime("%A, %d %B %Y")
     time_str = now.strftime("%I:%M %p IST")
 
-    if report_type == "evening":
-        return f"""
-        Today is {date_str}, {time_str}. The market is CLOSED.
-        
-        INJECTED STRUCTURAL METRICS DATA:
-        • Broad Index Performance: {data_payload.get('index_metrics', '')}
-        • Leading Sector Inflow: {data_payload.get('sector_gainers', '')}
-        • Lagging Sector Outflow: {data_payload.get('sector_losers', '')}
-        • DYNAMIC_GAINERS: {data_payload.get('stock_gainers_string', '')}
-        • DYNAMIC_LOSERS: {data_payload.get('stock_losers_string', '')}
-        • Macro Drivers Context: {data_payload.get('macro_triggers', '')}
+    # Dynamic status tag based on the runtime arg
+    status_mapping = {
+        "morning": "PRE-MARKET OPEN ANALYSIS",
+        "midday": "LIVE MIDDAY SNAPSHOT",
+        "evening": "MARKET CLOSE SUMMARY"
+    }
+    status_header = status_mapping.get(report_type.lower(), f"{report_type.upper()} UPDATE")
 
-        MISSION:
-        Format an End-of-Day summary scorecard. You must keep gainers and losers in their designated blocks. 
-        Assets inside 'DYNAMIC_LOSERS' belong exclusively under the '📉 BOTTOM PERFORMERS TODAY' layout block.
-
-        OUTPUT FORMAT Layout:
-
-        🏁 *MARKET CLOSE SUMMARY — {date_str}*
-        _{time_str}_
-
-        ━━━━━━━━━━━━━━━━━━━━
-        📊 *TODAY'S SCORECARD (NSE/BSE)*
-        ━━━━━━━━━━━━━━━━━━━━
-        {data_payload.get('index_metrics', '')}
-        • Top Sector Outperformance: {data_payload.get('sector_gainers', '')}
-        • Worst Sector Profit Booking: {data_payload.get('sector_losers', '')}
-
-        ━━━━━━━━━━━━━━━━━━━━
-        🏆 *TOP PERFORMERS TODAY (NSE)*
-        ━━━━━━━━━━━━━━━━━━━━
-        {data_payload.get('stock_gainers_string', '')}
-
-        ━━━━━━━━━━━━━━━━━━━━
-        📉 *BOTTOM PERFORMERS TODAY (NSE)*
-        ━━━━━━━━━━━━━━━━━━━━
-        {data_payload.get('stock_losers_string', '')}
-
-        ━━━━━━━━━━━━━━━━━━━━
-        📈 *TOMORROW'S PRE-MARKET PREP (9:15 AM IST)*
-        ━━━━━━━━━━━━━━━━━━━━
-        • Macro Overview: {data_payload.get('macro_triggers', '')}
-        • Groww Operational Rule: To bypass automated intraday MIS account square-off fees, ensure all active intraday execution entries are closed manually prior to 3:00 PM IST directly via your terminal.
-
-        _Review notes. Prepare orders manually on your Groww terminal for tomorrow._
-        """
+    return f"""
+    Today is {date_str}, {time_str}. The current run window is: {status_header}.
     
-    # Generic template fallback if other metrics are triggered
-    return f"✨ *{report_type.upper()} REPORT* Generated automatically for {date_str} at {time_str}."
+    INJECTED STRUCTURAL METRICS DATA:
+    • Broad Index Performance: {data_payload.get('index_metrics', '')}
+    • Leading Sector Inflow: {data_payload.get('sector_gainers', '')}
+    • Lagging Sector Outflow: {data_payload.get('sector_losers', '')}
+    • DYNAMIC_GAINERS: {data_payload.get('stock_gainers_string', '')}
+    • DYNAMIC_LOSERS: {data_payload.get('stock_losers_string', '')}
+    • Macro Drivers Context: {data_payload.get('macro_triggers', '')}
+
+    MISSION:
+    Format a beautiful {status_header} intelligence card. You must keep gainers and losers in their designated blocks. 
+    Assets inside 'DYNAMIC_LOSERS' belong exclusively under the '📉 BOTTOM PERFORMERS TODAY' layout block.
+
+    OUTPUT FORMAT Layout:
+
+    🏁 *{status_header} — {date_str}*
+    _{time_str}_
+
+    ━━━━━━━━━━━━━━━━━━━━
+    📊 *CURRENT SCORECARD (NSE/BSE)*
+    ━━━━━━━━━━━━━━━━━━━━
+    {data_payload.get('index_metrics', '')}
+    • Top Sector Outperformance: {data_payload.get('sector_gainers', '')}
+    • Worst Sector Profit Booking: {data_payload.get('sector_losers', '')}
+
+    ━━━━━━━━━━━━━━━━━━━━
+    🏆 *TOP PERFORMERS TODAY (NSE)*
+    ━━━━━━━━━━━━━━━━━━━━
+    {data_payload.get('stock_gainers_string', '')}
+
+    ━━━━━━━━━━━━━━━━━━━━
+    📉 *BOTTOM PERFORMERS TODAY (NSE)*
+    ━━━━━━━━━━━━━━━━━━━━
+    {data_payload.get('stock_losers_string', '')}
+
+    ━━━━━━━━━━━━━━━━━━━━
+    📈 *STRATEGIC MARKET PREP*
+    ━━━━━━━━━━━━━━━━━━━━
+    • Macro Overview: {data_payload.get('macro_triggers', '')}
+    • Groww Operational Rule: To bypass automated intraday MIS account square-off fees, ensure all active intraday execution entries are closed manually prior to 3:00 PM IST directly via your terminal.
+
+    _Review notes. Manage orders manually on your Groww terminal._
+    """
 
 
 # ─────────────────────────────────────────────
@@ -164,12 +168,6 @@ def build_prompt(report_type: str, data_payload: dict) -> str:
 def run_automated_pipeline(report_type: str):
     dbg(f"Initiating automated pipeline for: {report_type}")
     
-    if report_type != "evening":
-        # For non-evening reports, use standard baseline delivery routines
-        msg = f"✨ *Automated {report_type.upper()} Briefing* triggered successfully on {get_ist_now().strftime('%d %b %Y')}."
-        send_telegram(msg)
-        return
-
     # 1. SCRAPE LIVE INDIAN INDICES FROM FREE YAHOO DATA
     scraped_indices = {}
     indices_map = {"^NSEI": "Nifty 50", "^BSESN": "BSE Sensex"}
@@ -188,7 +186,7 @@ def run_automated_pipeline(report_type: str):
         except Exception:
             scraped_indices[clean_name] = "Fetch Timeout"
 
-    # 2. RUN DYNAMIC STOCK TRACKING SNAPSHOT (Define any custom stock basket to watch here)
+    # 2. RUN DYNAMIC STOCK TRACKING SNAPSHOT
     dynamic_watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "CIPLA", "DRREDDY", "TATASTEEL", "SBIN", "AXISBANK"]
     yf_tickers = [f"{sym}.NS" for sym in dynamic_watchlist]
     
@@ -235,10 +233,11 @@ def run_automated_pipeline(report_type: str):
         "sector_losers": "High-Beta Growth Blocks" if losers_lines else "Omitted",
         "stock_gainers_string": "\n".join(gainers_lines) if gainers_lines else "No dynamic gainers recorded.",
         "stock_losers_string": "\n".join(losers_lines) if losers_lines else "No dynamic laggards recorded.",
-        "macro_triggers": "Automated cross-asset liquidity matching across tracking watchlist vectors."
+        "macro_triggers": f"Automated cross-asset liquidity tracking for {report_type.upper()} update vectors."
     }
 
-    prompt = build_prompt("evening", data_payload=live_payload)
+    # Build prompt dynamically using the run execution type
+    prompt = build_prompt(report_type, data_payload=live_payload)
     result = call_groq(prompt)
     send_telegram(result)
 
@@ -248,5 +247,7 @@ if __name__ == "__main__":
         print("[CRITICAL] Missing core environment variables.")
         sys.exit(1)
 
+    # Defaults to 'morning' if no argument is explicitly provided, 
+    # but any string passed will now process fully.
     target_report = sys.argv[1].lower() if len(sys.argv) > 1 else "morning"
     run_automated_pipeline(target_report)
