@@ -260,7 +260,7 @@ def run_automated_pipeline(report_type: str):
     # 2. FIXED INCOME MARKET RUNTIMEs AND BENCHMARKS (Updated Ultra-Stable Reuters Feed)
     bond_string = "• India 10-Year Government G-Sec Yield: Data Unavailable"
     try:
-        bond_df = yf.Ticker("IN10YT=RR").history(period=fetch_period)
+        bond_df = yf.Ticker("^IN10Y").history(period=fetch_period)
         if not bond_df.empty:
             curr_yield = bond_df['Close'].iloc[-1]
             prev_yield = bond_df['Close'].iloc[-2] if len(bond_df) > 1 else curr_yield
