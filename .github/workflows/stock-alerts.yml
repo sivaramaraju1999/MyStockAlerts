@@ -2,34 +2,36 @@ name: Stock Alert Bot
 
 on:
   schedule:
-    # Schedule mapping explicitly tracking Indian Market hours (UTC conversion)
-    - cron: '0 3 * * 1-5'   # 8:30 AM IST (Morning Prep Briefing)
-    - cron: '30 5 * * 1-5'  # 11:00 AM IST (IPO Status Check Window)
-    - cron: '30 6 * * 1-5'  # 12:00 PM IST (Midday Trading Update)
-    - cron: '15 10 * * 1-5' # 3:45 PM IST (Post-Market Close Summary & Review)
-    - cron: '30 4 * * 6'    # Saturday 10:00 AM IST (Weekend Planning Tip)
+    # 3-Phase Core Algorithmic Schedule (Converted cleanly to UTC from Indian Standard Time)
+    - cron: '0 3 * * 1-5'   # 08:30 AM IST -> Pre-Market Compass Briefing (UTC 03:00)
+    - cron: '0 4 * * 1-5'   # 09:30 AM IST -> Live Scalping/Breakout Strategy Scanner (UTC 04:00)
+    - cron: '0 12 * * 1-5'  # 05:30 PM IST -> Evening Reconciliation & PDF Master Ledger Sync (UTC 12:00)
   workflow_dispatch:
     inputs:
       report_type:
-        description: 'Report to run manually'
+        description: 'Select execution phase for manual override run'
         required: true
         default: 'morning'
         type: choice
         options:
           - morning
-          - ipo
-          - midday
+          - live
           - evening
-          - weekend
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    
+    # CRITICAL: Grants execution agent write tokens to push ledger updates back to the repo
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pytz yfinance
+          pip install requests pytz yfinance reportlab
 
       - name: Determine report type from schedule
         id: report-type
@@ -48,17 +50,15 @@ jobs:
             echo "type=${{ github.event.inputs.report_type }}" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
+          # Isolate the current triggering UTC hour matrix
           HOUR=$(date -u +%H)
-          DAY=$(date -u +%u)
-          if [ "$DAY" = "6" ]; then
-            echo "type=weekend" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "03" ]; then
+          
+          if [ "$HOUR" = "03" ]; then
             echo "type=morning" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "05" ]; then
-            echo "type=ipo" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "06" ]; then
-            echo "type=midday" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "10" ]; then
+          elif [ "$HOUR" = "04" ]; then
+            echo "type=live" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "12" ]; then
             echo "type=evening" >> $GITHUB_OUTPUT
           else
             echo "type=morning" >> $GITHUB_OUTPUT
@@ -70,3 +70,17 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python bot.py ${{ steps.report-type.outputs.type }}
+
+      - name: Persist and Sync Master Ledger Data
+        run: |
+          git config --global user.name "GitHub Actions Automation Ledger"
+          git config --global user.email "actions@github.com"
+          
+          # Only stage and push if the logging ledger file exists and registers text delta updates
+          if [ -f trading_tracker_log.csv ]; then
+            git add trading_tracker_log.csv
+            git commit -m "Automated ledger sync: $(date +'%Y-%m-%d %H:%M:%S IST') [skip ci]" || echo "No data anomalies logged to commit"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "Tracking ledger file skipped or untracked during this pipeline runtime instance."
+          fi
